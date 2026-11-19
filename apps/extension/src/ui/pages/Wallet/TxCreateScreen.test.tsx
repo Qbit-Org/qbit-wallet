@@ -392,6 +392,29 @@ describe('TxCreateScreen fee details', () => {
       'fee_warning_recommendation_unavailable'
     );
   });
+
+  // Unlike the balance elsewhere, the rows here are what a user types into
+  // the amount: they stay exact, as the amount Max fills (owner to decide).
+  it('shows the balance rows exactly as given, Available being the amount Max fills', () => {
+    vi.mocked(useTxCreateScreenLogic).mockReturnValue({
+      ...vi.mocked(useTxCreateScreenLogic)(),
+      showUnavailable: true,
+      showImmature: true,
+      showPending: true,
+      availableAmount: '1234.56789999',
+      unavailableAmount: '0.00001999',
+      immatureAmount: '0.00000001',
+      pendingAmount: '0.00000000'
+    });
+    render(<TxCreateScreen />);
+
+    // Eight decimals, no separators, nothing on hover.
+    for (const amount of ['1234.56789999', '0.00001999', '0.00000001', '0.00000000']) {
+      const shown = screen.getByText(amount);
+      expect(shown.parentElement?.textContent, amount).toBe(`${amount}QBT`);
+      expect(shown.closest('[title]'), amount).toBeNull();
+    }
+  });
 });
 
 describe('TxCreateScreen while the outputs are read', () => {

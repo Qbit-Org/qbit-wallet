@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import accountsReducer, { accountActions, initialState } from '../../src/reducers/accounts'
+import accountsReducer, {
+  accountActions,
+  initialState,
+  type AccountsState,
+} from '../../src/reducers/accounts'
 
 describe('accounts reducer', () => {
   describe('initial state', () => {
@@ -316,6 +320,11 @@ describe('accounts reducer', () => {
 
   describe('an answer that could not read every output', () => {
     const address = 'qb1ztest123'
+    /** The answers other screens read, and their outcome, are those of `before`, as they were. */
+    const expectSameAnswers = (after: AccountsState, before: AccountsState): void => {
+      expect(after.balanceV2Map).toBe(before.balanceV2Map)
+      expect(after.balanceStatusMap).toBe(before.balanceStatusMap)
+    }
     const fullRead = {
       availableBalance: 60_000_000,
       unavailableBalance: 31_000_000,
@@ -608,7 +617,9 @@ describe('accounts reducer', () => {
       (_case, older) => {
         const state = set(initialState, failedRead, 2)
 
-        expect(set(state, older, 1)).toBe(state)
+        // The answers and their outcome stay as they were; the card's own
+        // record may note the older answer (`balanceReadMap`).
+        expectSameAnswers(set(state, older, 1), state)
       }
     )
 
@@ -626,11 +637,11 @@ describe('accounts reducer', () => {
       'does not put the split of an older read in the place of %s that is newer',
       (_case, newer) => {
         let state = set(initialState, newer, 2)
-        expect(set(state, fullRead, 1)).toBe(state)
+        expectSameAnswers(set(state, fullRead, 1), state)
 
         // Nor after a newer refresh failed.
         state = accountsReducer(state, accountActions.setBalanceError({ address, requestId: 3 }))
-        expect(set(state, fullRead, 1)).toBe(state)
+        expectSameAnswers(set(state, fullRead, 1), state)
       }
     )
 

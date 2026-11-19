@@ -2128,16 +2128,16 @@ describe('AccountSwitcherSheet totals', () => {
       [e]: known(1_250_000_000, { stale: true })
     });
 
-    expect(amount(a).textContent).toBe('1.5 QBT');
+    expect(amount(a).textContent).toBe('1.50000 QBT');
     expect(amount(a).getAttribute('data-stale')).toBeNull();
     // Read again: the amount stays, with no placeholder over it.
-    expect(amount(b).textContent).toBe('0 QBT');
+    expect(amount(b).textContent).toBe('0.00000 QBT');
     expect(amount(b).getAttribute('data-pending')).toBeNull();
     expect(amount(c).textContent).toBe('');
     expect(amount(c).getAttribute('data-pending')).toBe('true');
     expect(amount(c).classList.contains('switcher-row__amount--pending')).toBe(true);
     expect(amount(d).textContent).toBe('--');
-    expect(amount(e).textContent).toBe('12.5 QBT');
+    expect(amount(e).textContent).toBe('12.50000 QBT');
     expect(amount(e).getAttribute('data-stale')).toBe('true');
 
     // In the row button, after the name and address, before the menu button.
@@ -2150,19 +2150,25 @@ describe('AccountSwitcherSheet totals', () => {
     for (const address of [a, b, c, d, e]) {
       expect(amount(address).textContent).toBe('****');
       expect(amount(address).getAttribute('data-pending')).toBeNull();
+      // Nothing reveals a hidden balance.
+      expect(amount(address).getAttribute('title')).toBeNull();
     }
     expect(walletTotal('keyring_0').textContent).toBe('****');
   });
 
-  it('formats large and small totals in full, without trailing zeros or separators', async () => {
+  it('formats large and small totals as balances, with the exact amount on hover', async () => {
     const keyrings = [makeKeyring(0, KeyringType.QbitHdKeyring, 3)];
     const [a, b, c] = keyrings[0].accounts.map((account) => account.address);
     await renderSheet(keyrings);
     showTotals({ [a]: known(2_100_000_012_345_678), [b]: known(1), [c]: known(2_000_000_000) });
 
-    expect(amount(a).textContent).toBe('21000000.12345678 QBT');
-    expect(amount(b).textContent).toBe('0.00000001 QBT');
-    expect(amount(c).textContent).toBe('20 QBT');
+    // Commas, and five decimals, truncated; above zero is never 0.
+    expect(amount(a).textContent).toBe('21,000,000.12345 QBT');
+    expect(amount(b).textContent).toBe('<0.00001 QBT');
+    expect(amount(c).textContent).toBe('20.00000 QBT');
+    expect(amount(a).getAttribute('title')).toBe('21,000,000.12345678 QBT');
+    expect(amount(b).getAttribute('title')).toBe('0.00000001 QBT');
+    expect(amount(c).getAttribute('title')).toBe('20.00000000 QBT');
   });
 
   it('treats a total that is no number of sats as unknown', async () => {
@@ -2182,17 +2188,23 @@ describe('AccountSwitcherSheet totals', () => {
     await renderSheet(keyrings);
     showTotals({ [a]: known(10_000_000), [b]: known(20_000_000), [c]: known(1_220_000_000), [d]: known(5) });
 
-    expect(walletTotal('keyring_0').textContent).toBe('12.5 QBT');
-    expect(walletTotal('keyring_1').textContent).toBe('0.00000005 QBT');
-    // On the count line, after the count.
+    expect(walletTotal('keyring_0').textContent).toBe('12.50000 QBT');
+    expect(walletTotal('keyring_1').textContent).toBe('<0.00001 QBT');
+    expect(walletTotal('keyring_1').getAttribute('title')).toBe('0.00000005 QBT');
+    // On the count line, after the count; for a screen reader, the exact
+    // amount in its place.
     const countLine = walletTotal('keyring_0').parentElement as HTMLElement;
-    expect(countLine.textContent).toBe('account_switcher_account_count_other(3)·12.5 QBT');
+    expect(countLine.textContent).toBe('account_switcher_account_count_other(3)·12.50000 QBT12.50000000 QBT');
     expect(countLine.firstElementChild?.textContent).toBe('account_switcher_account_count_other(3)');
+    expect(walletTotal('keyring_0').getAttribute('aria-hidden')).toBe('true');
+    const exact = walletTotal('keyring_0').nextElementSibling as HTMLElement;
+    expect(exact.textContent).toBe('12.50000000 QBT');
+    expect(exact.classList.contains('switcher-visually-hidden')).toBe(true);
 
     // The hook is given every wallet as listed, whatever the search shows.
     search('Account 2');
     expect(rowIds()).toEqual([b]);
-    expect(walletTotal('keyring_0').textContent).toBe('12.5 QBT');
+    expect(walletTotal('keyring_0').textContent).toBe('12.50000 QBT');
     expect(harness.totalsAskedFor).toBe(harness.store.state.keyrings);
   });
 
@@ -2212,7 +2224,8 @@ describe('AccountSwitcherSheet totals', () => {
     // words for a screen reader.
     expect(screen.queryByTestId('wallet-total-stale-keyring_0')).toBeNull();
     showTotals({ [a]: known(100), [b]: known(300, { stale: true }), [c]: known(200) });
-    expect(walletTotal('keyring_0').textContent).toBe('0.000006 QBT');
+    expect(walletTotal('keyring_0').textContent).toBe('<0.00001 QBT');
+    expect(walletTotal('keyring_0').getAttribute('title')).toBe('0.00000600 QBT');
     expect(walletTotal('keyring_0').getAttribute('data-stale')).toBe('true');
     const note = screen.getByTestId('wallet-total-stale-keyring_0');
     expect(note.textContent).toBe('account_switcher_total_stale_note');
@@ -2229,7 +2242,7 @@ describe('AccountSwitcherSheet totals', () => {
     await renderSheet(keyrings);
     showTotals({ [keyrings[0].accounts[0].address]: known(1) });
 
-    expect(walletTotal('keyring_0').textContent).toBe('0.00000001 QBT');
+    expect(walletTotal('keyring_0').textContent).toBe('<0.00001 QBT');
     expect(screen.queryByTestId('wallet-total-keyring_1')).toBeNull();
     expect(screen.queryByTestId('wallet-total-keyring_2')).toBeNull();
   });
@@ -2240,18 +2253,21 @@ describe('AccountSwitcherSheet totals', () => {
     await renderSheet(keyrings);
 
     showTotals({ [a]: known(100), [b]: known(200) }, { home: { address: a, totalBalance: 500_000_000, stale: false } });
-    expect(amount(a).textContent).toBe('5 QBT');
-    expect(amount(b).textContent).toBe('0.000002 QBT');
-    expect(walletTotal('keyring_0').textContent).toBe('5.000002 QBT');
+    expect(amount(a).textContent).toBe('5.00000 QBT');
+    expect(amount(b).textContent).toBe('<0.00001 QBT');
+    expect(amount(b).getAttribute('title')).toBe('0.00000200 QBT');
+    expect(walletTotal('keyring_0').textContent).toBe('5.00000 QBT');
+    expect(walletTotal('keyring_0').getAttribute('title')).toBe('5.00000200 QBT');
 
     // Pending here, loaded on the home card: the home card's.
     showTotals({ [a]: pending, [b]: known(200) }, { home: { address: a, totalBalance: 0, stale: true } });
-    expect(amount(a).textContent).toBe('0 QBT');
+    expect(amount(a).textContent).toBe('0.00000 QBT');
     expect(amount(a).getAttribute('data-stale')).toBe('true');
 
     // Not loaded on the home card: the account's own total.
     showTotals({ [a]: known(100), [b]: known(200) }, { home: null });
-    expect(amount(a).textContent).toBe('0.000001 QBT');
+    expect(amount(a).textContent).toBe('<0.00001 QBT');
+    expect(amount(a).getAttribute('title')).toBe('0.00000100 QBT');
 
     // Hidden stays hidden.
     showTotals({}, { hidden: true, home: { address: a, totalBalance: 500_000_000, stale: false } });
@@ -2266,7 +2282,10 @@ describe('AccountSwitcherSheet totals', () => {
     showTotals({ [a]: known(150_000_000), [b]: known(7, { stale: true }), [c]: pending, [d]: unknown });
 
     const label = (address: string) => screen.getByTestId(`account-row-${address}`).getAttribute('aria-label');
-    expect(label(a)).toBe(`account_switcher_account_balance_label(Account 1|Wallet 1|${shortAddress(a)}|1.5 QBT)`);
+    // The exact amount, which the row shows to five decimals.
+    expect(label(a)).toBe(
+      `account_switcher_account_balance_label(Account 1|Wallet 1|${shortAddress(a)}|1.50000000 QBT)`
+    );
     // A stale amount, muted on screen, says so in its name.
     expect(label(b)).toBe(
       `account_switcher_account_balance_stale_label(Account 2|Wallet 1|${shortAddress(b)}|0.00000007 QBT)`

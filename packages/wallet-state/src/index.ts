@@ -91,13 +91,10 @@ const saveUiState: Middleware = api => {
     getState: () => ({ ui: savedUiState(api.getState().ui) }),
   })(passNowhere)
   return next => action => {
-    const { isBalanceHidden, balanceDetailExpanded } = api.getState().ui
+    const { isBalanceHidden, balanceDetailOpen } = api.getState().ui
     const result = next(action)
     const { ui } = api.getState()
-    if (
-      ui.isBalanceHidden !== isBalanceHidden ||
-      ui.balanceDetailExpanded !== balanceDetailExpanded
-    ) {
+    if (ui.isBalanceHidden !== isBalanceHidden || ui.balanceDetailOpen !== balanceDetailOpen) {
       saveSoon(action)
     }
     return result

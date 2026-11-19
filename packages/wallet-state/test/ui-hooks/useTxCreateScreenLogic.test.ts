@@ -1759,7 +1759,9 @@ describe('TxCreateScreen state hooks', () => {
       undefined
     )
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(1)
-    expect(wallet.getAddressBalanceV2).toHaveBeenCalledWith(account.address)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledWith(account.address, {
+      progressId: expect.any(String),
+    })
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000)

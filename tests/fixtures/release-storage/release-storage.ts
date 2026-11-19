@@ -23,6 +23,13 @@ export const CAPTURE_SEND_AMOUNT = '0.0001'
  */
 export const FIRST_RELEASE_SAVING_PREFERENCES_ONLY = '1.0.9'
 
+/**
+ * The first release whose balance card starts with its breakdown closed,
+ * saved as `balanceDetailOpen`; releases before it save the breakdown,
+ * open by default, as `balanceDetailExpanded`.
+ */
+export const FIRST_RELEASE_WITH_DETAIL_CLOSED = '1.0.11'
+
 /** The parts of a release version such as `1.0.9`. */
 function versionParts(version: string): number[] {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version)
@@ -50,10 +57,25 @@ export function savedWholeUi(release: string): boolean {
   return releasedBefore(release, FIRST_RELEASE_SAVING_PREFERENCES_ONLY)
 }
 
-/** The display preferences a release saved under `SAVED_UI_KEY`. */
+/**
+ * The field `release` saves its balance card's breakdown under: from 1.0.11
+ * `balanceDetailOpen`, closed until the user opens it; before it
+ * `balanceDetailExpanded`, open by default. Told by the version.
+ */
+export function savedDetailField(release: string): 'balanceDetailOpen' | 'balanceDetailExpanded' {
+  return releasedBefore(release, FIRST_RELEASE_WITH_DETAIL_CLOSED)
+    ? 'balanceDetailExpanded'
+    : 'balanceDetailOpen'
+}
+
+/**
+ * The display preferences a release saved under `SAVED_UI_KEY`: the
+ * breakdown under the one field the release saves it in (`savedDetailField`).
+ */
 export interface SavedPreferences {
   isBalanceHidden: boolean
-  balanceDetailExpanded: boolean
+  balanceDetailExpanded?: boolean
+  balanceDetailOpen?: boolean
 }
 
 /** What a release saved under `SAVED_UI_KEY` in a capture. */
@@ -96,15 +118,16 @@ export function releaseSavedUi(
   }
   if (!isRecord(saved)) throw new Error(`${what} is not a JSON object: ${stored}`)
   const isBalanceHidden = saved['isBalanceHidden']
-  const balanceDetailExpanded = saved['balanceDetailExpanded']
-  if (isBalanceHidden !== true || typeof balanceDetailExpanded !== 'boolean') {
+  const detailField = savedDetailField(release)
+  const detail = saved[detailField]
+  if (isBalanceHidden !== true || typeof detail !== 'boolean') {
     throw new Error(`${what} does not hold the two preferences, balances hidden: ${stored}`)
   }
-  const preferences = { isBalanceHidden, balanceDetailExpanded }
+  const preferences: SavedPreferences = { isBalanceHidden, [detailField]: detail }
 
   if (!savedWholeUi(release)) {
     const fields = Object.keys(saved).sort().join(', ')
-    if (fields !== 'balanceDetailExpanded, isBalanceHidden') {
+    if (fields !== [detailField, 'isBalanceHidden'].sort().join(', ')) {
       throw new Error(`${what} holds ${fields}, not the two display preferences alone: ${stored}`)
     }
     return { stored, preferences, sendForm: null }

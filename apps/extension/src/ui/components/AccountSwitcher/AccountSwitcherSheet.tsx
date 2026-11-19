@@ -30,7 +30,7 @@ import {
 import { ActionMenu, ActionMenuItem } from './ActionMenu';
 import { NameEditDialog, NewAccountDialog, WalletColorPicker } from './SwitcherDialogs';
 import { accountCountLabel } from './accountCount';
-import { TotalDisplay, accountTotalDisplay, formatTotal, walletTotalDisplay } from './accountTotals';
+import { TotalDisplay, TotalTexts, accountTotalDisplay, totalTexts, walletTotalDisplay } from './accountTotals';
 import './index.less';
 
 /** Wallets that can derive another account: the ones with a recovery phrase. */
@@ -86,16 +86,18 @@ interface WalletGroup {
  * balances are hidden, `--` when it is unknown, or a quiet bar of fixed width
  * while it is on its way. An amount that may be out of date (its latest
  * read failed, or it may be from before a transaction the wallet submitted)
- * is muted.
+ * is muted. The amount shows five decimals (`texts`, formatted once by the
+ * caller); the exact one is its hover text, and what a screen reader reads
+ * instead (the row's name, or the text the header puts after it).
  */
 function TotalAmount({
   display,
-  unit,
+  texts,
   className,
   testId
 }: {
   display: TotalDisplay;
-  unit: string;
+  texts: TotalTexts | undefined;
   className: string;
   testId: string;
 }) {
@@ -110,9 +112,16 @@ function TotalAmount({
     );
   }
   const stale = display.kind === 'amount' && display.stale;
+  const exact = display.kind === 'amount' ? texts?.exact : undefined;
   return (
-    <span className={className} data-stale={stale ? 'true' : undefined} data-testid={testId}>
-      {display.kind === 'hidden' ? '****' : display.kind === 'unknown' ? '--' : formatTotal(display.sats, unit)}
+    <span
+      className={className}
+      data-stale={stale ? 'true' : undefined}
+      data-testid={testId}
+      title={exact}
+      aria-hidden={exact ? 'true' : undefined}
+    >
+      {display.kind === 'hidden' ? '****' : display.kind === 'unknown' ? '--' : (texts?.shown ?? '--')}
     </span>
   );
 }
@@ -729,6 +738,7 @@ function AccountSwitcherContent() {
           const walletMenuOpen = menu?.kind === 'wallet' && menu.keyringKey === keyring.key;
           // Every account of the wallet, the ones a search hides too.
           const walletTotal = walletTotalDisplay(balancesHidden, keyring.accounts.map(totalOf));
+          const walletTotalTexts = walletTotal.kind === 'amount' ? totalTexts(walletTotal.sats, qbitUnit) : undefined;
           return (
             <div
               key={keyring.key}
@@ -761,10 +771,13 @@ function AccountSwitcherContent() {
                       </span>
                       <TotalAmount
                         display={walletTotal}
-                        unit={qbitUnit}
+                        texts={walletTotalTexts}
                         className="switcher-group__total"
                         testId={`wallet-total-${keyring.key}`}
                       />
+                      {walletTotalTexts?.exact && (
+                        <span className="switcher-visually-hidden">{walletTotalTexts.exact}</span>
+                      )}
                       {walletTotal.kind === 'amount' && walletTotal.stale && (
                         // Muted on screen; said in words for a screen reader.
                         <span className="switcher-visually-hidden" data-testid={`wallet-total-stale-${keyring.key}`}>
@@ -818,6 +831,7 @@ function AccountSwitcherContent() {
                     const address = shortAddress(account.address);
                     const accountMenuOpen = menu?.kind === 'account' && menu.accountKey === account.key;
                     const total = totalOf(account);
+                    const texts = total.kind === 'amount' ? totalTexts(total.sats, qbitUnit) : undefined;
                     // A stale amount is muted on screen; its name says so in words.
                     const rowLabel =
                       total.kind === 'amount'
@@ -825,7 +839,7 @@ function AccountSwitcherContent() {
                             total.stale
                               ? 'account_switcher_account_balance_stale_label'
                               : 'account_switcher_account_balance_label',
-                            [accountName, keyring.alianName, address, formatTotal(total.sats, qbitUnit)]
+                            [accountName, keyring.alianName, address, texts?.exact ?? '--']
                           )
                         : t('account_switcher_account_label', [accountName, keyring.alianName, address]);
                     const rowClass = [
@@ -856,7 +870,7 @@ function AccountSwitcherContent() {
                           </span>
                           <TotalAmount
                             display={total}
-                            unit={qbitUnit}
+                            texts={texts}
                             className="switcher-row__amount"
                             testId={`account-balance-${account.address}`}
                           />

@@ -2346,22 +2346,28 @@
     "message": "Le paiement peut encore aboutir : ne payez pas ce destinataire d’une autre façon."
   },
   "utxo_limit_exceeded_balance": {
-    "message": "L'explorateur ne liste pas les sorties de ce compte. Ce total provient du résumé de l'adresse."
+    "message": "Solde estimé : le portefeuille n’a pas pu charger les sorties de ce compte depuis l’explorateur."
   },
   "utxo_limit_exceeded_balance_detail": {
-    "message": "Les montants disponible et indisponible sont inconnus, car l'explorateur ne liste pas les sorties de ce compte."
+    "message": "Détail indisponible, car l’explorateur ne peut pas lister les sorties de ce compte."
   },
   "balance_load_error": {
-    "message": "Impossible de charger le solde. L’explorateur est peut-être temporairement indisponible."
+    "message": "Impossible de charger le solde. L’explorateur est peut-être temporairement indisponible. Essayez d’actualiser le solde."
   },
   "balance_refresh_error": {
-    "message": "Impossible d’actualiser le solde ; il n’est peut-être plus à jour."
+    "message": "Impossible d’actualiser le solde ; il n’est peut-être plus à jour. Essayez d’actualiser le solde."
   },
   "balance_outputs_incomplete": {
-    "message": "Le portefeuille n'a pas pu finir de lire les sorties de ce compte : seul le total est donc affiché. Il réessaiera."
+    "message": "Solde estimé : le portefeuille n’a pas pu finir de lire les sorties de ce compte. Essayez d’actualiser le solde."
   },
   "balance_outputs_incomplete_detail": {
-    "message": "Les montants disponible et indisponible sont inconnus tant que le portefeuille n'a pas fini de lire les sorties de ce compte."
+    "message": "Détail indisponible tant que le portefeuille n’a pas fini de lire les sorties du compte."
+  },
+  "balance_updating": {
+    "message": "Mise à jour…"
+  },
+  "balance_reading_outputs": {
+    "message": "Lecture de $1 sorties sur $2"
   },
   "utxo_limit_exceeded_send": {
     "message": "L'explorateur ne liste pas les sorties de ce compte et le portefeuille n'a pas pu toutes les lire dans son historique : il ne peut donc pas envoyer depuis ce compte pour le moment. Rouvrez Envoyer pour réessayer."

@@ -2346,22 +2346,28 @@
     "message": "The payment may still go through: do not pay this recipient another way."
   },
   "utxo_limit_exceeded_balance": {
-    "message": "The explorer does not list this account's outputs. This total comes from the address summary."
+    "message": "Estimated balance - the wallet was unable to load this account's outputs from the explorer."
   },
   "utxo_limit_exceeded_balance_detail": {
-    "message": "Available and unavailable amounts are unknown because the explorer does not list this account's outputs."
+    "message": "Breakdown unavailable because the explorer cannot list this account's outputs."
   },
   "balance_load_error": {
-    "message": "Balance could not be loaded. The explorer may be temporarily unavailable."
+    "message": "Balance couldn't be loaded. The explorer may be temporarily unavailable. Try refreshing the balance."
   },
   "balance_refresh_error": {
-    "message": "Balance could not be refreshed and may be out of date."
+    "message": "Balance couldn't be updated and may be out of date. Try refreshing the balance."
   },
   "balance_outputs_incomplete": {
-    "message": "The wallet could not finish reading this account's outputs, so only the total is shown. It will try again."
+    "message": "Estimated balance - the wallet couldn't finish reading this account's outputs. Try refreshing the balance."
   },
   "balance_outputs_incomplete_detail": {
-    "message": "Available and unavailable amounts are unknown until the wallet finishes reading this account's outputs."
+    "message": "Breakdown unavailable until wallet finishes reading the account's outputs."
+  },
+  "balance_updating": {
+    "message": "Updating…"
+  },
+  "balance_reading_outputs": {
+    "message": "Reading $1 of $2 outputs"
   },
   "utxo_limit_exceeded_send": {
     "message": "The explorer does not list this account's outputs, and the wallet could not read them all from its history, so it cannot send from this account now. Reopen Send to try again."

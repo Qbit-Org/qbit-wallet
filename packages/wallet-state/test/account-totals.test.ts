@@ -1001,7 +1001,7 @@ describe('useAccountSwitcherTotals', () => {
     open()
     await settle()
     // A preference change makes the page save, as it does after a second.
-    store.dispatch(uiActions.setBalanceDetailExpanded(false))
+    store.dispatch(uiActions.setBalanceDetailOpen(true))
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_000)
     })

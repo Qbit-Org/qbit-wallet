@@ -2346,22 +2346,28 @@
     "message": "El pago aún puede completarse: no pagues a este destinatario de otra forma."
   },
   "utxo_limit_exceeded_balance": {
-    "message": "El explorador no lista las salidas de esta cuenta. Este total procede del resumen de la dirección."
+    "message": "Saldo estimado: la billetera no pudo cargar las salidas de esta cuenta desde el explorador."
   },
   "utxo_limit_exceeded_balance_detail": {
-    "message": "Los importes disponible y no disponible se desconocen porque el explorador no lista las salidas de esta cuenta."
+    "message": "Desglose no disponible porque el explorador no puede listar las salidas de esta cuenta."
   },
   "balance_load_error": {
-    "message": "No se pudo cargar el saldo. Es posible que el explorador no esté disponible temporalmente."
+    "message": "No se pudo cargar el saldo. Es posible que el explorador no esté disponible temporalmente. Prueba a actualizar el saldo."
   },
   "balance_refresh_error": {
-    "message": "No se pudo actualizar el saldo; puede que no esté al día."
+    "message": "No se pudo actualizar el saldo y puede que no esté al día. Prueba a actualizar el saldo."
   },
   "balance_outputs_incomplete": {
-    "message": "La billetera no pudo terminar de leer las salidas de esta cuenta, así que solo se muestra el total. Lo volverá a intentar."
+    "message": "Saldo estimado: la billetera no pudo terminar de leer las salidas de esta cuenta. Prueba a actualizar el saldo."
   },
   "balance_outputs_incomplete_detail": {
-    "message": "Los importes disponible y no disponible se desconocen hasta que la billetera termine de leer las salidas de esta cuenta."
+    "message": "Desglose no disponible hasta que la billetera termine de leer las salidas de la cuenta."
+  },
+  "balance_updating": {
+    "message": "Actualizando…"
+  },
+  "balance_reading_outputs": {
+    "message": "Leyendo $1 de $2 salidas"
   },
   "utxo_limit_exceeded_send": {
     "message": "El explorador no lista las salidas de esta cuenta y la billetera no pudo leerlas todas de su historial, así que ahora no puede enviar desde esta cuenta. Vuelve a abrir Enviar para intentarlo de nuevo."

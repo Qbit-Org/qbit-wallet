@@ -69,7 +69,17 @@ export {
 } from './useActionOverviewSectionLogic'
 export { useSettingsTabScreenLogic, type SettingsItemType } from './useSettingsTabScreenLogic'
 
-export { useBalanceCardLogic } from './useBalanceCardLogic'
+export {
+  useBalanceCardLogic,
+  balanceCardMessage,
+  balanceCardStatus,
+  type BalanceCardMessage,
+  type BalanceCardRefreshReason,
+  type BalanceCardShown,
+  type BalanceCardSplit,
+  type BalanceCardStatus,
+  type BalanceReadCount,
+} from './useBalanceCardLogic'
 export { useQbitDisplayLogic } from './useQbitDisplayLogic'
 
 export {

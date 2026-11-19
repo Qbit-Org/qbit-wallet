@@ -2346,22 +2346,28 @@
     "message": "這筆付款仍可能完成：請勿以其他方式付款給此收款人。"
   },
   "utxo_limit_exceeded_balance": {
-    "message": "瀏覽器不會列出此帳戶的輸出。此總額來自地址摘要。"
+    "message": "估計餘額：錢包無法從區塊瀏覽器載入此帳戶的輸出。"
   },
   "utxo_limit_exceeded_balance_detail": {
-    "message": "由於瀏覽器未列出此帳戶的輸出，可用與不可用金額未知。"
+    "message": "由於區塊瀏覽器無法列出此帳戶的輸出，無法顯示明細。"
   },
   "balance_load_error": {
-    "message": "無法載入餘額。區塊瀏覽器可能暫時無法使用。"
+    "message": "無法載入餘額。區塊瀏覽器可能暫時無法使用。請嘗試重新整理餘額。"
   },
   "balance_refresh_error": {
-    "message": "無法更新餘額，顯示的餘額可能不是最新的。"
+    "message": "無法更新餘額，顯示的餘額可能不是最新的。請嘗試重新整理餘額。"
   },
   "balance_outputs_incomplete": {
-    "message": "錢包無法讀完此帳戶的所有輸出，因此僅顯示總額。錢包會再試一次。"
+    "message": "估計餘額：錢包無法讀完此帳戶的輸出。請嘗試重新整理餘額。"
   },
   "balance_outputs_incomplete_detail": {
-    "message": "在錢包讀完此帳戶的輸出之前，可用與不可用金額未知。"
+    "message": "在錢包讀完此帳戶的輸出之前，無法顯示明細。"
+  },
+  "balance_updating": {
+    "message": "正在更新…"
+  },
+  "balance_reading_outputs": {
+    "message": "正在讀取輸出 $1 / $2"
   },
   "utxo_limit_exceeded_send": {
     "message": "瀏覽器不會列出此帳戶的輸出，錢包也無法從其歷史記錄讀取全部輸出，因此目前無法從此帳戶傳送。請重新開啟「傳送」再試一次。"

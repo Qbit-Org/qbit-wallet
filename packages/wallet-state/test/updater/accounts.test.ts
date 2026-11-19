@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { useStartBalanceReadCallback } from '../../src/hooks/accounts'
 import { accountActions } from '../../src/reducers/accounts'
 import { globalActions } from '../../src/reducers/global'
 import { AccountUpdater } from '../../src/updater/accounts'
@@ -23,53 +24,73 @@ function renderUpdaterWithSlowExplorer() {
   const { store, wrapper } = createHookTestHarness({ wallet: wallet as any })
   store.dispatch(globalActions.update({ isUnlocked: true }))
   renderHook(() => AccountUpdater(), { wrapper })
+  // Another caller of the page that reads the account (a refresh after a broadcast).
+  const other = renderHook(() => useStartBalanceReadCallback(), { wrapper })
 
   const selectAccount = (address: string, key: string) =>
     act(() => {
       store.dispatch(accountActions.setCurrent({ address, key } as any))
     })
-  // Re-runs the fetch effect for the same account.
-  const lockAndUnlock = () => {
+  // Re-runs the fetch effect for the same account; `whileLocked` runs between.
+  const lockAndUnlock = (whileLocked?: () => void) => {
     act(() => {
       store.dispatch(globalActions.update({ isUnlocked: false }))
     })
+    if (whileLocked) act(whileLocked)
     act(() => {
       store.dispatch(globalActions.update({ isUnlocked: true }))
     })
   }
-  return { wallet, failFetch, selectAccount, lockAndUnlock }
+  const readElsewhere = () => {
+    other.result.current().catch(() => undefined)
+  }
+  return { wallet, failFetch, selectAccount, lockAndUnlock, readElsewhere }
 }
 
 describe('AccountUpdater', () => {
   it('fetches a newly selected account while the previous account is still loading', () => {
     const { wallet, selectAccount } = renderUpdaterWithSlowExplorer()
-    expect(wallet.getAddressBalanceV2).toHaveBeenCalledWith('qb1ztestaccount')
+    const asked = { progressId: expect.any(String) }
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledWith('qb1ztestaccount', asked)
 
     selectAccount('qb1zotheraccount', 'account-2')
 
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(2)
-    expect(wallet.getAddressBalanceV2).toHaveBeenLastCalledWith('qb1zotheraccount')
+    expect(wallet.getAddressBalanceV2).toHaveBeenLastCalledWith('qb1zotheraccount', asked)
   })
 
   it('does not fetch the same account again while its fetch is in flight', () => {
+    const { wallet, lockAndUnlock, readElsewhere } = renderUpdaterWithSlowExplorer()
+
+    // A read of the account begun while the wallet was locked is still in
+    // flight at the unlock: it is the account's read.
+    lockAndUnlock(readElsewhere)
+
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(2)
+  })
+
+  it('reads the account at an unlock when the read in flight began before the lock, as its answer is from before it', () => {
     const { wallet, lockAndUnlock } = renderUpdaterWithSlowExplorer()
 
     lockAndUnlock()
 
-    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(1)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps an account marked as loading when an older fetch for it settles', async () => {
-    const { wallet, failFetch, selectAccount, lockAndUnlock } = renderUpdaterWithSlowExplorer()
+  it('reads an account selected again once: not while its read is in flight, and again once it settled', async () => {
+    const { wallet, failFetch, selectAccount } = renderUpdaterWithSlowExplorer()
     selectAccount('qb1zotheraccount', 'account-2')
     selectAccount('qb1ztestaccount', 'account-1')
-    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(3)
+    // The first account's read is still in flight: it is not read beside it.
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(2)
+    selectAccount('qb1zotheraccount', 'account-2')
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(2)
 
-    // The account's first fetch fails while its second is still in flight.
+    // Once it failed, selecting it again reads it again.
     await act(async () => {
       failFetch[0]()
     })
-    lockAndUnlock()
+    selectAccount('qb1ztestaccount', 'account-1')
 
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(3)
   })

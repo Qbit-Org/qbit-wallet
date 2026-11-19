@@ -65,15 +65,45 @@ export class WalletHomePage extends ExtensionPageObject {
   }
 
   /**
-   * The total the balance card shows, as it shows it: the amount with its
-   * eight decimals, without the unit ("0.25000000"); "" while it shows none.
-   * The card sets the whole part and the decimals apart, so they are joined.
+   * The total the balance card shows, as it shows it: the amount with commas
+   * and five decimals, without the unit ("0.25000", "1,234.56789",
+   * "<0.00001"); "" while it shows none. The card sets the whole part and
+   * the decimals apart, so they are joined. The exact amount a screen reader
+   * reads after it has eight decimals, which this does not match.
    */
   async balanceAmount(): Promise<string> {
     await expect(this.balanceCard).toBeVisible()
     if ((await this.byTestId('balance-loading').count()) > 0) return ''
     const text = (await this.balanceCard.innerText()).replace(/\s+/g, '')
-    return text.match(/\d+\.\d{8}/)?.[0] ?? ''
+    return text.match(/<0\.00001|\d{1,3}(?:,\d{3})*\.\d{5}(?!\d)/)?.[0] ?? ''
+  }
+
+  /** The balance card's total as it shows it, while it shows an amount. */
+  get balanceFigure(): Locator {
+    return this.balanceCard.getByTestId('wallet-balance-figure')
+  }
+
+  /**
+   * The exact total the balance card gives on hover, with its eight decimals
+   * and the unit ("0.25000000 QBT"). Fails while the card shows no amount
+   * (loading, hidden, unknown).
+   */
+  async balanceExactAmount(): Promise<string> {
+    await expect(this.balanceFigure).toBeVisible()
+    const exact = await this.balanceFigure.getAttribute('title')
+    if (!exact) throw new Error("the balance card's figure gives no exact amount")
+    return exact
+  }
+
+  /**
+   * Whether the balance card's breakdown (Available and Unavailable) is
+   * open: closed until the user opens it, by a click on the card. Read from
+   * the card's own state, so a card with nothing to break down (the load
+   * error) still says what it would show.
+   */
+  async balanceDetailOpen(): Promise<boolean> {
+    await expect(this.balanceCard).toBeVisible()
+    return (await this.balanceCard.getAttribute('data-detail-open')) === 'true'
   }
 
   /** The balance card's eye, which hides or shows the balances. */

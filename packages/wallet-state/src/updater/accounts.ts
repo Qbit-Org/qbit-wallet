@@ -1,25 +1,33 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { useStore } from 'react-redux'
 
 import { Account, BUS_METHODS } from '@qbit/wallet-shared'
+import type { AppState } from '..'
 import { uiEventBus } from '../utils/eventBus'
 
 import { useIsUnlocked } from '../hooks/global'
 import { globalActions } from '../reducers/global'
 import { useAppDispatch } from '../hooks/base'
 import { settingsActions } from '../reducers/settings'
-import { useCurrentAccount, useFetchBalanceCallback, useReloadAccounts } from '../hooks/accounts'
-import { accountActions } from '../reducers/accounts'
+import {
+  newestBalanceRequestId,
+  useCurrentAccount,
+  useReloadAccounts,
+  useStartBalanceReadCallback,
+} from '../hooks/accounts'
+import { accountActions, accountsReloaded, balanceReadsLocked } from '../reducers/accounts'
 import { ChainType } from '@qbit/wallet-types'
 import { useWallet } from '../context/WalletContext'
+import { balanceCardFor, balanceCardWaiting, balanceReadInFlight } from '../hooks/balanceReads'
 
 export function AccountUpdater() {
   const dispatch = useAppDispatch()
   const wallet = useWallet()
   const currentAccount = useCurrentAccount()
   const isUnlocked = useIsUnlocked()
+  const store = useStore()
   const selfRef = useRef({
     preAccountKey: '_',
-    balanceFetch: undefined as { address: string } | undefined,
     loadingHistory: false,
   })
   const self = selfRef.current
@@ -41,32 +49,50 @@ export function AccountUpdater() {
     onCurrentChange()
   }, [currentAccount && currentAccount.key, isUnlocked])
 
-  const fetchBalance = useFetchBalanceCallback()
+  const startRead = useStartBalanceReadCallback()
+  // The accounts the page starts with are its first network's: so a network
+  // switch before any reload of them has ended is told as one, and the
+  // balance card waits for the new network's account (`accountsLoaded`).
   useEffect(() => {
-    // Skip a second fetch for the account already loading, but not for a newly
-    // selected one: it loads at once instead of on the balance card's next poll.
-    // Outcomes are recorded per address, so the two fetches cannot clash.
-    const address = currentAccount.address
-    if (self.balanceFetch?.address === address) {
-      return
-    }
+    if (!isUnlocked || !currentAccount.address) return
+    const { accounts, settings } = store.getState() as AppState
+    if (accounts.accountsLoaded !== undefined) return
+    dispatch(accountsReloaded({ chainType: settings.chainType, seq: 0 }))
+  }, [dispatch, store, isUnlocked, currentAccount.address])
+  // The newest read this page had begun when the wallet last locked.
+  const lockedAfterRef = useRef(0)
+  useEffect(() => {
+    // Whatever this page read before a lock may be out of date once the
+    // wallet is unlocked again (the background forgot what it kept): it shows
+    // as being refreshed until a read begun after the unlock answers.
     if (!isUnlocked) {
-      return
+      lockedAfterRef.current = newestBalanceRequestId()
+      dispatch(balanceReadsLocked({ before: lockedAfterRef.current }))
     }
-    // Only this fetch clears the marker: an older fetch for the same account
-    // settling must not, while this one is still in flight.
-    const balanceFetch = { address }
-    self.balanceFetch = balanceFetch
-    fetchBalance()
-      .catch(() => {
-        // Recorded in balanceStatusMap; the balance card shows it with a retry.
-      })
-      .finally(() => {
-        if (self.balanceFetch === balanceFetch) {
-          self.balanceFetch = undefined
-        }
-      })
-  }, [fetchBalance, wallet, isUnlocked, self, currentAccount.address])
+  }, [dispatch, isUnlocked])
+
+  useEffect(() => {
+    // A newly selected account, or the wallet unlocked, reads at once, every
+    // screen alike. One read of the account at a time: none while one of
+    // this page's reads of it is in flight, whoever began it. While the
+    // balance card shows the account the read is the card's, through its
+    // poll, so its outcome paces the card's next read; a card shown while
+    // this read is in flight takes it as its own (see `pageBalanceReads`).
+    // A read still in flight from before the last lock is not this read: its
+    // answer is out of date (`balanceReadsLocked`), so a new one begins.
+    const address = currentAccount.address
+    if (!isUnlocked || !address) return
+    // Nothing while the balance card waits for the selected account to be
+    // the new network's: it is still the previous network's.
+    if (balanceCardWaiting(store, address)) return
+    const inFlight = balanceReadInFlight(store, address)
+    if (inFlight && inFlight.requestId > lockedAfterRef.current) return
+    const card = balanceCardFor(store, address)
+    const reading = card ? card.read() : startRead()
+    reading.catch(() => {
+      // Recorded in the store; the balance card shows it as its status says.
+    })
+  }, [startRead, wallet, isUnlocked, store, currentAccount.address])
 
   useEffect(() => {
     const accountChangeHandler = (account: Account) => {
