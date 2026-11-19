@@ -1,6 +1,6 @@
 # Dependency security and license review
 
-Review date: 2026-11-18 (advisory refresh of the 2026-09-02 review; evidence
+Review date: 2026-11-19 (advisory refresh of the 2026-09-02 review; evidence
 regenerated on 2026-11-02 after `follow-redirects` moved to 1.16.2, on
 2026-11-03 after the move from pnpm 8.6.0 to pnpm 11.28.9, on 2026-11-05
 after merging `release/1.0.8` at #140, which removed unused dependencies from
@@ -9,7 +9,9 @@ the extension and keyring-service, twice more on 2026-11-05, after the
 were removed, and on 2026-11-10 after `bitcoinjs-lib` moved to 6.1.8 for the
 critical `GHSA-8vv3-6qpc-gpw6`; on 2026-11-17 the high `picomatch` advisory
 `GHSA-fc5q-39xc-vjpf` was accepted with the evidence unchanged, and on
-2026-11-18 its exception was removed after GitHub withdrew the advisory. The SDK 0.1.2 audit and inventory were regenerated that day.)
+2026-11-18 its exception was removed after GitHub withdrew the advisory. The SDK 0.1.2 audit and inventory were regenerated that day, and again
+on 2026-11-19 after the cold-wallet QR flow's `@zxing/library`,
+`@zxing/browser` and `@unisat/animated-qr` were removed.)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -27,18 +29,18 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `7a9cdf6d0920354fdc2598da4fd2cdfdaefbe90b` |
+| Audited commit | `1bf6e615bc96084ebf40af21685f2f2886869697` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `95261f601c03194eee23c280ee59220f19b418d085e9357bbe90b083d4e28c0d` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `16f1808be89b23ecb6f526050016b00d8059b2912203719772c1f3fc23ee9e77` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `2831f908b46be7b0998a5e02ce2eac03aefcf1c68e13d26eb021a866a500ad80` |
+| `pnpm-lock.yaml` SHA-256 | `7f7edf7964a4169a540fc6eac1306844942cb55ecb8c7e2d727292d55524afcf` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `d569c4f1d1d4e703aab67126278cd1c0dcbf76bc58279d2ab2970e204b59101e` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `2b88fa95d60e2155a6d909d41f78faa9a28a922569569e79096d597034afc3d0` |
 | Qbit SDK npm packages | `@qbit-oss/pqc` 0.1.1 and `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.2, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 386 direct declarations, all 178 resolved packages classified as crypto-,
+all 383 direct declarations, all 178 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -153,7 +155,8 @@ moderate, and 9 low.
 | Audited result `41ce38b` (2026-11-10, `bitcoinjs-lib` 6.1.8) | 0 | 0 | 32 | 10 | 42 |
 | Advisory-feed drift at unchanged-lock `release/1.0.10` `374f694` (2026-11-17, `picomatch` accepted) | 0 | 1 | 32 | 9 | 42 |
 | Advisory-feed drift at unchanged-lock `release/1.0.11` `15a5b64` (2026-11-18, `picomatch` advisory withdrawn) | 0 | 0 | 32 | 9 | 41 |
-| Current audited result `7a9cdf6` (2026-11-18, Qbit protocol and API 0.1.2) | 0 | 0 | 32 | 9 | 41 |
+| Audited result `7a9cdf6` (2026-11-18, Qbit protocol and API 0.1.2) | 0 | 0 | 32 | 9 | 41 |
+| Current audited result `1bf6e61` (2026-11-19, cold-wallet QR packages removed) | 0 | 0 | 32 | 9 | 41 |
 
 pnpm 8's metadata counted vulnerable dependency occurrences and pnpm 11's
 counts advisory records, one per record however many installed versions it
@@ -418,7 +421,9 @@ which is not in this PR's history either.
 
 The 2026-11-10 move of `bitcoinjs-lib` to 6.1.8 is commit `41ce38b8`, and
 it is in this change's history: the regenerated evidence and this review
-follow in the next commit, whose parent it is.
+follow in the next commit, whose parent it is. The 2026-11-19 removal of the
+cold-wallet QR packages is commit `1bf6e615`, followed the same way by its
+regenerated evidence and this review.
 
 | Commit | Reviewable tranche | Result |
 | --- | --- | --- |
@@ -483,6 +488,7 @@ follow in the next commit, whose parent it is.
 | `802dc03c` | Remove the unused `@qbit/wallet-api` and `@qbit/notification-service` workspaces | Dropped 2 workspaces, 20 direct declarations and the `@types/randomstring@1.3.0` license identity; the live audit stayed at zero critical/high findings |
 | `a941b06e` | Remove `antd`, which no screen rendered any more, and its `antd-dayjs-webpack-plugin` and `babel-plugin-import` build plugins | Cleared the moderate `moment` record `GHSA-4p3w-j4w9-5jqw`, which only `antd` still reached, and dropped 56 lock entries and their license identities, `moment@2.30.1` among them; the live audit stayed at zero critical/high findings |
 | `41ce38b8` | Move `bitcoinjs-lib` to 6.1.8, the first patched 6.x release for the critical `GHSA-8vv3-6qpc-gpw6`, and review its license identity | Restored zero critical/high findings on the 2026-11-10 live audit with no exception in force; only `bitcoinjs-lib` moved in the lockfile, and its `psbt.js` and the workspace patch are unchanged |
+| `1bf6e615` | Remove `@zxing/library`, `@zxing/browser` and `@unisat/animated-qr` with the unreachable cold-wallet QR flow that alone used them | Dropped 3 direct declarations and 15 lock entries and their license identities, `qrcode@1.5.4` and its `yargs@15.4.1` chain among them, and onboarded none; the live audit stayed at 41 records with zero critical/high findings, and no advisory record or path count changed |
 
 ## Lint and dependency policy jobs
 
@@ -551,10 +557,10 @@ commit and audit bytes.
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,080 distinct identities
+version, and normalized license expression for all 2,065 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,080 registry entries must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,065 registry entries must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.
@@ -597,7 +603,11 @@ brought in, among them `antd@4.20.4`, `moment@2.30.1`, `dayjs@1.11.18`,
 leaving 2,080. The 2026-11-10 refresh onboarded `bitcoinjs-lib@6.1.8` through
 the pending-review flow, verified MIT against its installed manifest and its
 license file, which is byte-identical to 6.1.6's, and dropped the superseded
-`bitcoinjs-lib@6.1.6`, leaving 2,080.
+`bitcoinjs-lib@6.1.6`, leaving 2,080. Removing `@zxing/library`,
+`@zxing/browser` and `@unisat/animated-qr` on 2026-11-19 dropped the 15
+identities that only they brought in, all MIT or ISC apart from
+`@zxing/text-encoding@0.9.0` (`Unlicense OR Apache-2.0`), and onboarded none,
+leaving 2,065.
 
 Lockfile changes are onboarded with
 `corepack pnpm security:dependencies -- --write-license-baseline`. The command
@@ -737,6 +747,29 @@ instances when comparing the release base with the SDK update. Two Chrome builds
 of the dependency-only change produced the same SHA-256,
 `546a0a0615fcc5bce84bdf438d34a7a785f4bae6acc59a47cdcfcc5c7b18ba0d`.
 The regenerated dependency inventory identifies `7a9cdf6` as its audited commit.
+
+The 2026-11-19 removal of `@zxing/library`, `@zxing/browser` and
+`@unisat/animated-qr` ran locally on Node 24.22.3 with pnpm 11.28.9, outside
+the pinned Node 22.22.3, so its results are a non-canonical local drill and
+branch CI runs the pinned toolchain. Its lockfile is one pnpm 11.28.9 relock
+of the base lockfile that only deletes the 15 identities, and the frozen
+install passed against it. Every gate here ran on the tree of `1bf6e615`,
+the security suites with the evidence regenerated there. Lint passed with zero
+errors; its unique warnings fell from base `c278cd85`'s 2,498 to 2,464, all
+in removed or edited files, and no file gains a warning for any rule. The
+workspace typecheck and builds passed, and the root `tsc` run over
+`apps/extension` has the same 20 errors as the base. The workspace tests passed:
+413 Vitest files with 9,070 tests, 131 extension script tests, and 12 PQC
+golden and 3 protocol-vector tests. The adversarial suite, with its 243
+policy-tooling tests, and the live dependency policy passed, with 0
+critical/high records and no exception in force. The store build
+(`build:chrome:mv3`) of the base and of `1bf6e615` share 62 of their ZIP
+entries byte for byte. `ui.js` is 460,032 bytes smaller and no longer carries
+the QR scanner or the animated-QR code; `background.js` loses only the two
+controller methods that refused and three UI-port names; the six locale files
+lose 30 keys; and `images/icons/artifacts/singer-info.svg` is gone. The ZIP
+fell from 1,831,587 to 1,700,534 bytes. The regenerated dependency inventory
+identifies `1bf6e615` as its audited commit.
 
 ## Limitations and ongoing ownership
 

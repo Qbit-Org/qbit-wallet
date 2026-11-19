@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "7a9cdf6d0920354fdc2598da4fd2cdfdaefbe90b",
-  "lockfileSha256": "95261f601c03194eee23c280ee59220f19b418d085e9357bbe90b083d4e28c0d",
+  "auditedCommit": "1bf6e615bc96084ebf40af21685f2f2886869697",
+  "lockfileSha256": "7f7edf7964a4169a540fc6eac1306844942cb55ecb8c7e2d727292d55524afcf",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "16f1808be89b23ecb6f526050016b00d8059b2912203719772c1f3fc23ee9e77",
+    "sha256": "d569c4f1d1d4e703aab67126278cd1c0dcbf76bc58279d2ab2970e204b59101e",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -14,12 +14,12 @@
   },
   "summary": {
     "workspaces": 18,
-    "registryLockEntries": 2080,
-    "directDeclarations": 386,
+    "registryLockEntries": 2065,
+    "directDeclarations": 383,
     "directDeclarationsByDelivery": {
       "development-quality-tooling": 123,
       "extension-build-packaging": 70,
-      "shipped-runtime": 138,
+      "shipped-runtime": 135,
       "test-only-tooling": 33,
       "workspace-contract": 22
     },
@@ -2253,36 +2253,6 @@
       "section": "dependencies",
       "requested": "^1.9.2",
       "resolved": "1.9.2(react-redux@8.0.5(@types/react-dom@18.2.17)(@types/react@18.2.17)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(redux@4.2.1))(react@18.2.0)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "@unisat/animated-qr",
-      "section": "dependencies",
-      "requested": "1.0.1",
-      "resolved": "1.0.1(react@18.2.0)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "@zxing/browser",
-      "section": "dependencies",
-      "requested": "^0.1.5",
-      "resolved": "0.1.5(@zxing/library@0.21.2)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "@zxing/library",
-      "section": "dependencies",
-      "requested": "^0.21.2",
-      "resolved": "0.21.2",
       "delivery": "shipped-runtime",
       "securityAdjacency": []
     },
