@@ -5,6 +5,81 @@ the project's earlier, private tracker, not to issues or pull requests in this
 repository. From 1.0.8, issue numbers such as #30 refer to issues in this
 repository.
 
+## 1.0.11
+
+### Balance card
+
+- Opening the wallet no longer shows a warning while the balance is still
+  loading or after a single failed reply from the explorer. Before, an
+  account with many young outputs could open on "Balance could not be
+  refreshed and may be out of date." with Try again, a second note about
+  unread outputs and "--" for Available and Unavailable, and correct itself
+  a few seconds later.
+- On a first load the card shows loaders in place of the numbers, each as
+  high as the line it replaces, so the card does not move when the numbers
+  arrive. The total appears as soon as the explorer answers, with loaders
+  for Available and Unavailable until every output is read, and a long read
+  says how far it has got beside the refresh button, as in "2,888 / 3,346".
+- While a balance is refreshed, the last one stays on screen, dimmed, with
+  "Updating…". A quick refresh shows no change at all. A newly opened wallet
+  window shows the last complete balance straight away, dimmed, while it
+  reads it again.
+- The card says that the balance could not be updated only when reads keep
+  failing: two failed reads at least 10 seconds apart, or one that failed
+  30 seconds ago, not counting time the window is hidden. The message stays
+  until a read succeeds. The messages no longer have a yellow box and now
+  read "Balance couldn't be updated and may be out of date. Try refreshing
+  the balance.", "Balance couldn't be loaded. The explorer may be
+  temporarily unavailable. Try refreshing the balance." and, over a total
+  whose outputs could not be read, "Estimated balance - the wallet couldn't
+  finish reading this account's outputs. Try refreshing the balance." There
+  is no Try again button: the refresh button on the card reads at once.
+- Available and Unavailable are closed until you open them, and the card
+  remembers the choice. Every install starts closed once.
+- The balance read no longer loses Available and Unavailable, or the whole
+  balance, to one failed reply. When the explorer answers a request with a
+  temporary server error, the wallet asks again after 0.5 and then 1.5
+  seconds, within 3 seconds in all. If the explorer still fails, the wallet
+  keeps what it read and asks only for the rest next time. The Send screen
+  and every read that a signature depends on check the explorer exactly as
+  before (#244).
+- Balances on the home screen, in Switch Account and in Settings, Address
+  Type now show a comma between thousands and five decimal places, as in
+  118,591.83137. A balance is cut at the fifth decimal, never rounded up, so
+  the wallet never shows more than an account holds, and one below 0.00001
+  shows as "<0.00001". Hovering over a balance shows the exact amount, and
+  screen readers read the exact amount. The Send screen, the amounts you
+  type, Max, fees, History and the confirmation and signing screens keep all
+  eight decimals. Very large balances now fit the popup and a narrow side
+  panel (#241).
+- The row of the selected account in Switch Account shows the same total as
+  the balance card in every state of the card.
+
+### Repository and release
+
+- The extension version is 1.0.11.
+- The dependency exception for a picomatch advisory is removed, because
+  GitHub withdrew the advisory (#245).
+
+### Known limitations
+
+- A real explorer outage shows later and clears later than in 1.0.10. With
+  every reply failing from the moment the wallet opens, the card says so
+  after about 20 seconds, where 1.0.10 did after 1 to 2 seconds, and once
+  the explorer answers again the card recovers at its next read, 12 to 14
+  seconds later in the outages measured, where 1.0.10 took 1 to 3 seconds.
+  The refresh button reads at once.
+- During an outage an open wallet window sends about 2.7 times the requests
+  1.0.10 sent for an account's summary, output list and chain tip.
+- After a network switch the card waits up to 5 seconds for the new
+  network's account before it reads. If the accounts have not loaded by
+  then, it reads the account still selected, as 1.0.10 does at its next
+  refresh.
+- If a read fails, you leave the home screen and hide the window, and the
+  first read after you return fails too, the card says so at once rather
+  than 10 to 30 seconds later: the time the window was hidden is not left
+  out in that case.
+
 ## 1.0.10
 
 ### Sending and fees

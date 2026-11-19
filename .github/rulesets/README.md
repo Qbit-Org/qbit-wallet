@@ -11,6 +11,7 @@ repository admin applies it with `gh` from the repository root.
 | `required-checks-release.json` | `release/*`, except reconcile branches such as `release/1.0.8-reconcile-main`: pull requests only, with no approval required, squash merges and merge commits only, and the `Playwright G3 scenarios` and `signed-landing` checks must pass. No bypass actors. Not enforced when the branch is created. |
 | `main-protection.json` | `main`: pull requests with one approval and a code owner's review, squash merges and merge commits only; no creation, deletion or force push. Organization admins and repository admins can bypass it when merging a pull request. |
 | `release-tags.json` | `v*` tags can't be moved or deleted. No bypass actors. |
+| `release-tag-create.json` | Only organization admins and repository admins can create a `v*` tag. |
 
 A release branch takes changes through pull requests only, with no approval
 required. The pull request is required because the check judges a commit
@@ -197,6 +198,7 @@ apply .github/rulesets/signed-commits.json &&
   apply .github/rulesets/required-checks-release.json &&
   apply .github/rulesets/main-protection.json &&
   apply .github/rulesets/release-tags.json &&
+  apply .github/rulesets/release-tag-create.json &&
   gh api -X PATCH "$repo" -F allow_merge_commit=true -F allow_squash_merge=true -F allow_rebase_merge=false --silent
 ```
 
