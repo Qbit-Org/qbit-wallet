@@ -58,17 +58,21 @@ export const VERSION_FILES = [
   'apps/extension/package.json',
   'apps/extension/build/_raw/manifest/_base_v3.json',
 ]
-// The sources that can make a release act on its own version: the bundled
-// "what's new" notices, keyed by the version that shows them, and the bundled
-// wallet configuration, whose `version` the update prompt compares with the
-// running one. A version bump to a version either of them names runs in full.
+// The sources that can make a release act on its own version. The bundled
+// "what's new" notices are keyed by the version that shows them, so a version
+// bump to a version that file names runs in full. The update prompt compares
+// the running version with the bundled wallet configuration's `version` by
+// order, so a bump can cross it without naming it: any version in that file
+// (`anyVersion`) runs every version bump in full.
 export const VERSION_KEYED_SOURCES = [
-  'packages/wallet-background/src/config/local-version-notices.ts',
-  'packages/wallet-background/src/config/local-wallet-config.ts',
+  { path: 'packages/wallet-background/src/config/local-version-notices.ts', anyVersion: false },
+  { path: 'packages/wallet-background/src/config/local-wallet-config.ts', anyVersion: true },
 ]
-// x.y.z, each part a number Chrome accepts in a manifest version (0 to 65535
-// has at most five digits), with no leading zero.
-const VERSION = /^(?:0|[1-9][0-9]{0,4})(?:\.(?:0|[1-9][0-9]{0,4})){2}$/
+const ANY_VERSION = /[0-9]+\.[0-9]+\.[0-9]+/
+// x.y.z with no leading zero, each part a number Chrome accepts in a manifest
+// version: 0 to 65535.
+const VERSION = /^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$/
+const MAX_VERSION_PART = 65535
 
 // More changed files than this is not a documentation fix; it runs in full.
 export const MAX_CHANGED_PATHS = 200
@@ -179,6 +183,17 @@ function readVersionFile(text) {
   return { version: json.version, rest: JSON.stringify({ ...json, version: '' }) }
 }
 
+// The three numbers of an x.y.z version, or undefined for anything else.
+function versionParts(version) {
+  const parts = VERSION.exec(version)?.slice(1).map(Number)
+  return parts?.every(part => part <= MAX_VERSION_PART) ? parts : undefined
+}
+
+function isHigher(parts, than) {
+  const index = parts.findIndex((part, at) => part !== than[at])
+  return index !== -1 && parts[index] > than[index]
+}
+
 function changedLines(before, after) {
   const old = before.split('\n')
   const now = after.split('\n')
@@ -188,8 +203,9 @@ function changedLines(before, after) {
 
 // The verdict for the version files of a change whose other files are all
 // allowlisted documentation (`docs`). Both files must be modified, each in one
-// line and, as JSON, in the value of its top-level `version` only; both must
-// set the same x.y.z version; and no version-keyed source may name it.
+// line and, as JSON, in the value of its top-level `version` only; each must
+// raise an x.y.z version to a higher one, both to the same; and no
+// version-keyed source may name it, as VERSION_KEYED_SOURCES says.
 function classifyVersionBump({ changed, versionFiles, versionKeyed, docs }) {
   const refuse = reason => ({ docsOnly: false, reason })
   const missing = VERSION_FILES.find(path => !changed.has(path))
@@ -217,17 +233,25 @@ function classifyVersionBump({ changed, versionFiles, versionKeyed, docs }) {
     ) {
       return refuse(`${path} must change in the value of its version and in nothing else`)
     }
-    if (!VERSION.test(after.version)) return refuse(`${path} sets a version that is not x.y.z`)
+    const from = versionParts(before.version)
+    const to = versionParts(after.version)
+    if (!to) return refuse(`${path} sets a version that is not x.y.z`)
+    if (!from || !isHigher(to, from)) {
+      return refuse(`${path} does not raise its version from a lower x.y.z one`)
+    }
     versions.push(after.version)
   }
   const [version] = versions
   if (versions.some(other => other !== version)) {
     return refuse(`${VERSION_FILES.join(' and ')} set different versions`)
   }
-  for (const path of VERSION_KEYED_SOURCES) {
+  for (const { path, anyVersion } of VERSION_KEYED_SOURCES) {
     const source = versionKeyed.find(entry => entry?.path === path)
     if (typeof source?.text !== 'string') return refuse(`${path} could not be read`)
-    if (source.text.includes(version)) {
+    if (anyVersion && ANY_VERSION.test(source.text)) {
+      return refuse(`${path} names a version, which the running version is compared with`)
+    }
+    if (!anyVersion && source.text.includes(version)) {
       return refuse(`${path} names version ${version}, which that release may act on`)
     }
   }
@@ -388,7 +412,7 @@ export function readChanges({ mergeSha, headSha, cwd = process.cwd(), versionBum
       before: blob(base, path),
       after: blob(mergeSha, path),
     })),
-    versionKeyed: VERSION_KEYED_SOURCES.map(path => ({ path, text: blob(mergeSha, path) })),
+    versionKeyed: VERSION_KEYED_SOURCES.map(({ path }) => ({ path, text: blob(mergeSha, path) })),
   }
 }
 
@@ -504,26 +528,24 @@ export async function runDocsOnly(env, { cwd = process.cwd(), fetchImpl, log = c
     verdict = { docsOnly: false, reason: `the change could not be classified (${error.message})` }
   }
   setOutput(env, 'docs-only', verdict.docsOnly ? 'true' : 'false')
-  // What a `true` skips, for a docs-only change and for a version bump.
-  const skipped =
-    verdict.version === undefined
-      ? 'the steps that read no documentation are skipped'
-      : 'as a version bump, so the steps that do not depend on the version are skipped'
+  // What a `true` skips: for a docs-only change, and for a version bump.
+  const bump = verdict.version !== undefined
+  const skipped = bump
+    ? 'the steps that do not depend on the version are skipped'
+    : 'the steps that read no documentation are skipped'
   log.log(
     annotation(
       'notice',
-      !verdict.docsOnly
-        ? `Not a docs-only change, so every step runs: ${verdict.reason}`
-        : verdict.version === undefined
-          ? `Docs-only change, so ${skipped}: ${verdict.reason}`
-          : `Version bump, which counts as a docs-only change here, so the steps that do not depend on the version are skipped: ${verdict.reason}`
+      verdict.docsOnly
+        ? `${bump ? 'Version bump, which counts as a docs-only change here' : 'Docs-only change'}, so ${skipped}: ${verdict.reason}`
+        : `Not a docs-only change, so every step runs: ${verdict.reason}`
     )
   )
   const paths = verdict.docsOnly ? verdict.paths : []
   summary(env, [
     '### Docs-only change',
     '',
-    `- Docs-only: ${verdict.docsOnly ? `yes, ${skipped}` : 'no'} (${oneLine(verdict.reason)})`,
+    `- Docs-only: ${verdict.docsOnly ? `yes, ${bump ? 'as a version bump, so ' : ''}${skipped}` : 'no'} (${oneLine(verdict.reason)})`,
     ...paths.slice(0, LISTED_PATHS).map(path => `  - \`${path}\``),
     ...(paths.length > LISTED_PATHS ? [`  - and ${paths.length - LISTED_PATHS} more`] : []),
     ...(verdict.docsOnly

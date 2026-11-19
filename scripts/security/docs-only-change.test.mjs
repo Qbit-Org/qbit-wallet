@@ -666,7 +666,8 @@ test('the commit under test must be a merge of the head into a base', t => {
 // --- Version bumps -----------------------------------------------------------
 
 const [PACKAGE_FILE, MANIFEST_FILE] = VERSION_FILES
-const [NOTICES_FILE, WALLET_CONFIG_FILE] = VERSION_KEYED_SOURCES
+const KEYED_FILES = VERSION_KEYED_SOURCES.map(({ path }) => path)
+const [NOTICES_FILE, WALLET_CONFIG_FILE] = KEYED_FILES
 const packageJson = (version, extra = {}) =>
   `${JSON.stringify(
     { name: 'qbit-extension', version, private: true, scripts: { build: 'gulp build' }, ...extra },
@@ -703,22 +704,23 @@ function versionVerdictOf(pr, versionBump = true) {
   })
 }
 
-test('the version files and the version-keyed sources are tracked, and the version files agree', () => {
+test('the version files and the version-keyed sources are tracked, and each version file holds a version', () => {
   const staged = execFileSync('git', ['ls-files', '-s', '-z'], { cwd: repoRoot, encoding: 'utf8' })
     .split('\0')
     .filter(Boolean)
     .map(line => /^([0-7]{6}) [0-9a-f]+ [0-3]\t(.+)$/.exec(line))
-  for (const path of [...VERSION_FILES, ...VERSION_KEYED_SOURCES]) {
+  for (const path of [...VERSION_FILES, ...KEYED_FILES]) {
     // A file that moves away makes every version bump run in full, quietly.
     assert.equal(staged.find(match => match?.[2] === path)?.[1], '100644', path)
     assert.equal(isAllowlisted(path), false, path)
   }
   assert.equal(VERSION_FILES.length, 2)
-  const versions = VERSION_FILES.map(
-    path => JSON.parse(readFileSync(join(repoRoot, path), 'utf8')).version
-  )
-  assert.match(versions[0], /^[0-9]+\.[0-9]+\.[0-9]+$/)
-  assert.equal(versions[1], versions[0])
+  // The package's version may carry a `-beta` suffix, which the build drops;
+  // such a version is not x.y.z, and a change to or from it runs in full.
+  for (const path of VERSION_FILES) {
+    const { version } = JSON.parse(readFileSync(join(repoRoot, path), 'utf8'))
+    assert.match(version, /^[0-9]+\.[0-9]+\.[0-9]+(?:-beta\b.*)?$/, path)
+  }
 })
 
 test('a pull request that only sets the version, with or without documentation, counts where a version bump may', t => {
@@ -853,13 +855,41 @@ test('a version bump that changes anything else, or that a source names, runs in
       },
       /package\.json and .*_base_v3\.json set different versions/,
     ],
-    ...['1.0.11-beta.1', '1.0', '1.0.11.0', '01.0.11', '1.0.111111', 'v1.0.11', '1.0.x', ''].map(
-      version => [
-        `the version ${JSON.stringify(version)}`,
-        bump(version),
-        /package\.json sets a version that is not x\.y\.z/,
-      ]
-    ),
+    // Chrome refuses a manifest version with a part above 65535.
+    ...[
+      '1.0.11-beta.1',
+      '1.0',
+      '1.0.11.0',
+      '01.0.11',
+      '1.0.65536',
+      '1.70000.0',
+      '99999.0.0',
+      '1.0.111111',
+      'v1.0.11',
+      '1.0.x',
+      '',
+    ].map(version => [
+      `the version ${JSON.stringify(version)}`,
+      bump(version),
+      /package\.json sets a version that is not x\.y\.z/,
+    ]),
+    // A version that does not go up is not a bump.
+    ...['1.0.9', '1.0.2', '0.9.99', '0.0.0'].map(version => [
+      `the lower version ${version}`,
+      bump(version),
+      /package\.json does not raise its version from a lower x\.y\.z one/,
+    ]),
+    [
+      'a base whose version is not x.y.z',
+      bump('1.0.10'),
+      /package\.json does not raise its version from a lower x\.y\.z one/,
+      {
+        files: {
+          [PACKAGE_FILE]: packageJson('1.0.10-beta.1'),
+          [MANIFEST_FILE]: manifestJson('1.0.9'),
+        },
+      },
+    ],
     [
       'a version that is not a string',
       repo => {
@@ -946,17 +976,18 @@ test('a version bump that changes anything else, or that a source names, runs in
         },
       },
     ],
-    [
-      'a bundled configuration that names that version',
-      bump(),
-      /local-wallet-config\.ts names version 1\.0\.11, which that release may act on/,
+    // The update prompt compares by order, so a bump can cross the bundled
+    // configuration's version without naming it: any version there stops it.
+    ...['1.0.11', '1.0.10', '1.0.12', '2.0.0'].map(version => [
+      `a bundled configuration that names version ${version}`,
+      bump('1.0.13'),
+      /local-wallet-config\.ts names a version, which the running version is compared with/,
       {
         files: {
-          [WALLET_CONFIG_FILE]:
-            "const LOCAL_WALLET_CONFIG = Object.freeze({ version: '1.0.11' })\n",
+          [WALLET_CONFIG_FILE]: `const LOCAL_WALLET_CONFIG = Object.freeze({ version: '${version}' })\n`,
         },
       },
-    ],
+    ]),
     [
       'a notice that the change itself adds',
       repo => {
@@ -971,6 +1002,19 @@ test('a version bump that changes anything else, or that a source names, runs in
     assert.match(verdict.reason, reason, label)
     assert.equal(verdict.version, undefined, label)
   }
+  // The highest version Chrome accepts, and a version that is higher only as
+  // numbers, count.
+  assert.equal(versionVerdictOf(versionPullRequest(t, bump('1.0.65535'))).docsOnly, true)
+  assert.equal(versionVerdictOf(versionPullRequest(t, bump('65535.65535.65535'))).docsOnly, true)
+  const numeric = versionVerdictOf(
+    versionPullRequest(t, bump('1.0.10'), {
+      files: { [PACKAGE_FILE]: packageJson('1.0.9'), [MANIFEST_FILE]: manifestJson('1.0.9') },
+    })
+  )
+  assert.equal(numeric.docsOnly, true, numeric.reason)
+  for (const version of ['1.1.0', '2.0.0', '1.10.0']) {
+    assert.equal(versionVerdictOf(versionPullRequest(t, bump(version))).version, version)
+  }
   // A notice for another version does not stop it.
   const other = versionVerdictOf(
     versionPullRequest(t, bump(), {
@@ -981,7 +1025,7 @@ test('a version bump that changes anything else, or that a source names, runs in
 
   // A version-keyed source that the tree does not have cannot be read, which
   // the step turns into a full run.
-  for (const missing of VERSION_KEYED_SOURCES) {
+  for (const missing of KEYED_FILES) {
     const pr = versionPullRequest(t, bump(), { files: { [missing]: undefined } })
     assert.throws(
       () => readChanges({ mergeSha: pr.merge, headSha: pr.head, cwd: pr.dir, versionBump: true }),
@@ -1003,7 +1047,7 @@ test('the version verdict needs what was read of both files and of every version
     { path: PACKAGE_FILE, before: packageJson('1.0.10'), after: packageJson('1.0.11') },
     { path: MANIFEST_FILE, before: manifestJson('1.0.10'), after: manifestJson('1.0.11') },
   ]
-  const versionKeyed = VERSION_KEYED_SOURCES.map(path => ({ path, text: '' }))
+  const versionKeyed = KEYED_FILES.map(path => ({ path, text: '' }))
   const verdict = changes => classify({ entries, numstat, ...changes }, { versionBump: true })
   assert.equal(verdict({ versionFiles, versionKeyed }).docsOnly, true)
   for (const [changes, reason] of [
@@ -1031,8 +1075,12 @@ test('the version verdict needs what was read of both files and of every version
       /local-version-notices\.ts could not be read/,
     ],
     [
-      { versionFiles, versionKeyed: [versionKeyed[0], { ...versionKeyed[1], text: 'v1.0.11' }] },
-      /local-wallet-config\.ts names version 1\.0\.11/,
+      { versionFiles, versionKeyed: [versionKeyed[0], { ...versionKeyed[1], text: 'v0.0.1' }] },
+      /local-wallet-config\.ts names a version/,
+    ],
+    [
+      { versionFiles, versionKeyed: [{ ...versionKeyed[0], text: 'v1.0.11' }, versionKeyed[1]] },
+      /local-version-notices\.ts names version 1\.0\.11/,
     ],
   ]) {
     const refused = verdict(changes)

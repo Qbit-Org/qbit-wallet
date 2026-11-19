@@ -215,10 +215,14 @@ when all of these hold:
 3. Each version file differs from the base in one line, and as JSON only in
    the value of its top-level `version`. Both are read from the base and from
    the merge under test.
-4. Both set the same version, of the form `x.y.z`: three numbers of at most
-   five digits each, with no leading zero.
-5. Neither version-keyed source below, read from the merge under test, holds
-   that version anywhere in its text.
+4. Each raises its version from one `x.y.z` version to a higher one, and both
+   set the same. Each part is a number from 0 to 65535, the highest Chrome
+   accepts in a manifest, with no leading zero. A package version with a
+   `-beta` suffix is not of that form, so a change to or from one runs in
+   full.
+5. Neither version-keyed source below, read from the merge under test, stops
+   it: the notices do not hold that version anywhere in their text, and the
+   wallet configuration holds no version at all.
 
 The summary of `Tree pass marker` then says "as a version bump" and gives the
 version. The gates' summaries in this workflow say "only documentation that no
@@ -238,19 +242,24 @@ skipped step reads, or only that and the extension version". The label
 
 **Version-keyed sources.** Two bundled files can make a release act on its own
 version, both in `packages/wallet-background/src/config/`:
-`local-version-notices.ts`, whose notices are keyed by the version that shows
-them, and `local-wallet-config.ts`, whose `version` the update prompt compares
-with the running one. A notice for the next release is added while the
-extension still has the earlier version, so the pull request that sets the
-version is the first whose build shows it. Rule 5 runs G3 in full for it. The
-check is on the text: a version that appears anywhere in either file, in a
-comment or as part of a longer one, runs in full.
+
+- `local-version-notices.ts` holds the notices, keyed by the version that
+  shows them. A notice for the next release is added while the extension
+  still has the earlier version, so the pull request that sets the version is
+  the first whose build shows it. Rule 5 runs G3 in full for it: a version
+  bump to a version that appears anywhere in the file, in a comment or as
+  part of a longer one, runs in full.
+- `local-wallet-config.ts` holds the `version` that the update prompt compares
+  with the running one, by order. A version bump can cross that version
+  without naming it, so while the file holds anything of the form `1.2.3`,
+  in a comment too, every version bump runs in full.
 
 **Why only G3.** The lanes of `Typecheck, test, and build` build and package
 the extension under its version, and check the built manifest's version
 against `package.json`, so `ci.yml` does not set `DOCS_ONLY_VERSION_BUMP` and
 runs a version bump in full. The wiring test fails if a workflow that runs the reproducible build
-sets it.
+sets it, and if anything but the step itself does, since a step inherits its
+workflow's and its job's settings.
 
 ## A tripwire for new readers
 
@@ -332,9 +341,9 @@ so it does not force a full run. The label also turns off markers (see
   errors, a reason over several lines, the command line and the tripwire. It
   also covers version bumps: alone and with documentation, with the setting
   on, off and malformed, each way a version file can change in more than its
-  version, versions that differ or are not `x.y.z`, a notice or a
-  configuration that names the version, and a version-keyed source that is
-  missing. `pnpm test:security-tooling` runs it, and the
+  version, versions that differ, are not `x.y.z`, have a part above 65535 or
+  do not go up, a notice that names the version, a configuration that names
+  any, and a version-keyed source that is missing. `pnpm test:security-tooling` runs it, and the
   `Dependency policy` job runs that on every event.
 - `scripts/security/tree-pass-marker.test.mjs` pins the wiring: the step and
   output in `Tree pass marker`, the `DOCS_ONLY` input and the summary of every
@@ -355,7 +364,7 @@ so it does not force a full run. The label also turns off markers (see
   workflows.
 - `versionBump` in the same test says which workflows set
   `DOCS_ONLY_VERSION_BUMP`. The test checks the step's settings and the
-  wording of each gate against it, and that no such workflow runs the
-  reproducible build. A new file that holds the version goes in
+  wording of each gate against it, that nothing else in the workflow sets it,
+  and that no such workflow runs the reproducible build. A new file that holds the version goes in
   `VERSION_FILES`, and a new source that acts on it in
   `VERSION_KEYED_SOURCES`, both in `docs-only-change.mjs` and above.

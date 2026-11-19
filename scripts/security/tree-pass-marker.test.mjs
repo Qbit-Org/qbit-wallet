@@ -2974,6 +2974,21 @@ test('each marked workflow wires the lookup, the gates and the save the same way
     // A version bump changes the name and the manifest of the package that
     // the reproducible build makes, so no workflow that makes it lets one
     // count.
+    // Nothing else sets it: a step inherits its workflow's and its job's
+    // `env`, so the setting anywhere above the step would reach it too.
+    const settings = value =>
+      value && typeof value === 'object'
+        ? Object.entries(value).reduce(
+            (count, [key, inner]) =>
+              count + (key === 'DOCS_ONLY_VERSION_BUMP' ? 1 : 0) + settings(inner),
+            0
+          )
+        : 0
+    assert.equal(
+      settings(workflow),
+      expected.versionBump ? 1 : 0,
+      `${where}: only the docs-only step may set DOCS_ONLY_VERSION_BUMP`
+    )
     const buildsPackage = Object.values(jobs).some(job =>
       (job.steps ?? []).some(step => REPRODUCIBLE_BUILD_RUN.test(step.run ?? ''))
     )
