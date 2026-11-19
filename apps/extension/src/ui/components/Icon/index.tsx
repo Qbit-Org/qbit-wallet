@@ -90,10 +90,7 @@ export const svgRegistry = {
 
   // action (balance toggles)
   'balance-eyes': '/images/icons/action/balance-eyes.svg',
-  'balance-eyes-closed': '/images/icons/action/balance-eyes-closed.svg',
-
-  // artifacts
-  'singer-info': '/images/icons/artifacts/singer-info.svg'
+  'balance-eyes-closed': '/images/icons/action/balance-eyes-closed.svg'
 };
 
 type LucideIconName =

@@ -338,24 +338,6 @@ export function useRestoreQbitWalletCallback() {
   )
 }
 
-export function useCreateColdWalletCallback() {
-  const dispatch = useAppDispatch()
-  const wallet = useWallet()
-  return useCallback(
-    async (
-      xpub: string,
-      addressType: AddressType,
-      alianName?: string,
-      hdPath?: string,
-      accountCount?: number
-    ) => {
-      await wallet.createKeyringWithColdWallet(xpub, addressType, alianName, hdPath, accountCount)
-      dispatch(globalActions.update({ isUnlocked: true }))
-    },
-    [dispatch, wallet]
-  )
-}
-
 /**
  * Asks the background for the guarded reset. The password and the recovery
  * acknowledgement are checked there; see WalletController.resetWallet for
