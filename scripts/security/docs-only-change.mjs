@@ -14,6 +14,10 @@ import { TreePassConfigError, readPullRequestLabels } from './tree-pass-marker.m
 // docs/ci-docs-only.md explains the design and the allowlist. Every doubt,
 // and every error, resolves to "run everything": the output is `true` only
 // when every check below passed.
+//
+// Where DOCS_ONLY_VERSION_BUMP is `true`, which only the G3 workflow sets, a
+// pull request that also sets the extension version, and changes nothing else
+// but such documentation, counts as well (VERSION_FILES below).
 
 // The documentation files that no step a docs-only change skips reads. Each
 // entry is a judgment, recorded in docs/ci-docs-only.md with the readers that
@@ -39,6 +43,32 @@ const ROOT_DOCS = new Set(['README.md', 'CONTRIBUTING.md', 'SECURITY.md'])
 export const DOCS_EXCLUDED = new Map([
   ['docs/pqc-derivation.md', 'pqc.yml runs on every change to it, as part of the PQC contract'],
 ])
+
+// A version bump: the two files that hold the extension version, each
+// changed in the value of its top-level `version` and in nothing else. The
+// build takes the version from package.json and writes it into the built
+// manifest, over the base manifest's own; the bundle shows it on the About and
+// Settings screens and in a recovery error report. No G3 scenario depends on
+// which version that is, so where DOCS_ONLY_VERSION_BUMP is `true` such a
+// change counts as docs-only. `Typecheck, test, and build` never sets it: its
+// lanes build and package the extension under the new version, and check the
+// built manifest's version against package.json. Nothing checks the base
+// manifest's version, so both files must change, to the same version.
+export const VERSION_FILES = [
+  'apps/extension/package.json',
+  'apps/extension/build/_raw/manifest/_base_v3.json',
+]
+// The sources that can make a release act on its own version: the bundled
+// "what's new" notices, keyed by the version that shows them, and the bundled
+// wallet configuration, whose `version` the update prompt compares with the
+// running one. A version bump to a version either of them names runs in full.
+export const VERSION_KEYED_SOURCES = [
+  'packages/wallet-background/src/config/local-version-notices.ts',
+  'packages/wallet-background/src/config/local-wallet-config.ts',
+]
+// x.y.z, each part a number Chrome accepts in a manifest version (0 to 65535
+// has at most five digits), with no leading zero.
+const VERSION = /^(?:0|[1-9][0-9]{0,4})(?:\.(?:0|[1-9][0-9]{0,4})){2}$/
 
 // More changed files than this is not a documentation fix; it runs in full.
 export const MAX_CHANGED_PATHS = 200
@@ -134,9 +164,95 @@ function plural(count, noun) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
+// One version file's text as JSON: its top-level `version`, and the rest of it
+// with that value blanked, to compare. Undefined for anything else.
+function readVersionFile(text) {
+  if (typeof text !== 'string') return undefined
+  let json
+  try {
+    json = JSON.parse(text)
+  } catch {
+    return undefined
+  }
+  if (json === null || typeof json !== 'object' || Array.isArray(json)) return undefined
+  if (!Object.hasOwn(json, 'version') || typeof json.version !== 'string') return undefined
+  return { version: json.version, rest: JSON.stringify({ ...json, version: '' }) }
+}
+
+function changedLines(before, after) {
+  const old = before.split('\n')
+  const now = after.split('\n')
+  if (old.length !== now.length) return Infinity
+  return old.filter((line, index) => line !== now[index]).length
+}
+
+// The verdict for the version files of a change whose other files are all
+// allowlisted documentation (`docs`). Both files must be modified, each in one
+// line and, as JSON, in the value of its top-level `version` only; both must
+// set the same x.y.z version; and no version-keyed source may name it.
+function classifyVersionBump({ changed, versionFiles, versionKeyed, docs }) {
+  const refuse = reason => ({ docsOnly: false, reason })
+  const missing = VERSION_FILES.find(path => !changed.has(path))
+  if (missing) {
+    const [present] = [...changed.keys()]
+    return refuse(`${present} changed but ${missing} did not, so the two would not agree`)
+  }
+  const added = VERSION_FILES.find(path => changed.get(path).status !== 'M')
+  if (added) return refuse(describe(changed.get(added)))
+  if (!Array.isArray(versionFiles) || !Array.isArray(versionKeyed)) {
+    return refuse('the version files could not be read')
+  }
+  const versions = []
+  for (const path of VERSION_FILES) {
+    const file = versionFiles.find(entry => entry?.path === path)
+    const before = readVersionFile(file?.before)
+    const after = readVersionFile(file?.after)
+    if (!before || !after) {
+      return refuse(`${path} is not a JSON object with a version, before or after the change`)
+    }
+    if (
+      before.rest !== after.rest ||
+      before.version === after.version ||
+      changedLines(file.before, file.after) !== 1
+    ) {
+      return refuse(`${path} must change in the value of its version and in nothing else`)
+    }
+    if (!VERSION.test(after.version)) return refuse(`${path} sets a version that is not x.y.z`)
+    versions.push(after.version)
+  }
+  const [version] = versions
+  if (versions.some(other => other !== version)) {
+    return refuse(`${VERSION_FILES.join(' and ')} set different versions`)
+  }
+  for (const path of VERSION_KEYED_SOURCES) {
+    const source = versionKeyed.find(entry => entry?.path === path)
+    if (typeof source?.text !== 'string') return refuse(`${path} could not be read`)
+    if (source.text.includes(version)) {
+      return refuse(`${path} names version ${version}, which that release may act on`)
+    }
+  }
+  return {
+    docsOnly: true,
+    reason:
+      docs.length === 0
+        ? `the only change sets the extension version to ${version}, in its two version files`
+        : `the extension version is set to ${version} in its two version files, and the other ${
+            docs.length === 1 ? 'changed file is' : `${docs.length} changed files are`
+          } documentation that no skipped step reads`,
+    paths: [...docs, ...VERSION_FILES],
+    version,
+  }
+}
+
 // The verdict for the files a pull request changes. Only added or modified
 // regular files in the allowlist, with text content, make a docs-only change.
-export function classify({ entries, numstat }) {
+// With `versionBump`, the two version files may change with them, as
+// classifyVersionBump() allows; `versionFiles` and `versionKeyed` then hold
+// what readChanges() read of them.
+export function classify(
+  { entries, numstat, versionFiles, versionKeyed },
+  { versionBump = false } = {}
+) {
   if (!Array.isArray(entries) || !Array.isArray(numstat)) {
     return { docsOnly: false, reason: 'the changed files could not be read' }
   }
@@ -150,6 +266,7 @@ export function classify({ entries, numstat }) {
     }
   }
   const paths = []
+  const versionChanges = new Map()
   for (const entry of entries) {
     if (entry.status !== 'A' && entry.status !== 'M') {
       return { docsOnly: false, reason: describe(entry) }
@@ -162,7 +279,9 @@ export function classify({ entries, numstat }) {
         reason: `${path} has mode ${entry.oldMode} to ${entry.newMode}, not a regular file`,
       }
     }
-    if (!isAllowlisted(path)) {
+    if (versionBump && VERSION_FILES.includes(path) && !versionChanges.has(path)) {
+      versionChanges.set(path, entry)
+    } else if (!isAllowlisted(path)) {
       return { docsOnly: false, reason: `${path} is not in the docs-only allowlist` }
     }
     paths.push(path)
@@ -178,6 +297,14 @@ export function classify({ entries, numstat }) {
   }
   const binary = numstat.find(record => record.binary)
   if (binary) return { docsOnly: false, reason: `${binary.path} is binary` }
+  if (versionChanges.size > 0) {
+    return classifyVersionBump({
+      changed: versionChanges,
+      versionFiles,
+      versionKeyed,
+      docs: paths.filter(path => !versionChanges.has(path)),
+    })
+  }
   return {
     docsOnly: true,
     reason: `${plural(paths.length, 'file')} changed, all documentation that no skipped step reads`,
@@ -201,7 +328,11 @@ function git(args, cwd) {
 // have exactly two parents, the second the pull request head, so the checkout
 // needs a depth of 2. Renames and copies are looked for so that they can be
 // refused by name; submodules are never ignored.
-export function readChanges({ mergeSha, headSha, cwd = process.cwd() }) {
+//
+// With `versionBump`, when the change modifies both version files, it also
+// reads each of them at the base and at the merge, and the version-keyed
+// sources at the merge. The same checkout holds all of them.
+export function readChanges({ mergeSha, headSha, cwd = process.cwd(), versionBump = false }) {
   for (const [name, value] of [
     ['GITHUB_SHA', mergeSha],
     ['TREE_PASS_HEAD_SHA', headSha],
@@ -242,7 +373,32 @@ export function readChanges({ mergeSha, headSha, cwd = process.cwd() }) {
     ['diff', '--numstat', '--no-renames', ...common, '--end-of-options', base, mergeSha],
     cwd
   )
-  return { base, entries: parseRawDiff(raw), numstat: parseNumstat(numstat) }
+  const changes = { base, entries: parseRawDiff(raw), numstat: parseNumstat(numstat) }
+  const modified = new Set(
+    changes.entries.filter(entry => entry.status === 'M').map(entry => entry.paths[0])
+  )
+  if (!versionBump || !VERSION_FILES.every(path => modified.has(path))) return changes
+  // Both commits are object IDs and the paths are the constants above, so no
+  // argument can be read as an option.
+  const blob = (commit, path) => git(['cat-file', 'blob', `${commit}:${path}`], cwd)
+  return {
+    ...changes,
+    versionFiles: VERSION_FILES.map(path => ({
+      path,
+      before: blob(base, path),
+      after: blob(mergeSha, path),
+    })),
+    versionKeyed: VERSION_KEYED_SOURCES.map(path => ({ path, text: blob(mergeSha, path) })),
+  }
+}
+
+// Whether a version bump counts as docs-only in this workflow: `true`, or
+// `false` or unset. Anything else is a wiring error.
+function versionBumpSetting(env) {
+  const value = env.DOCS_ONLY_VERSION_BUMP
+  if (value === undefined || value === 'false') return false
+  if (value === 'true') return true
+  throw new DocsOnlyConfigError('DOCS_ONLY_VERSION_BUMP must be true, false or unset')
 }
 
 function hasLabel(labels, wanted) {
@@ -251,8 +407,9 @@ function hasLabel(labels, wanted) {
 
 // The verdict for this run. Errors from the label read and from git become a
 // full run with the error as the reason. A wiring error in this step (no force
-// label, a missing or malformed setting for the label read, or a commit that
-// is not an object ID) throws, as the marker's do.
+// label, a malformed DOCS_ONLY_VERSION_BUMP, a missing or malformed setting
+// for the label read, or a commit that is not an object ID) throws, as the
+// marker's do.
 export async function classifyPullRequest(env, { cwd = process.cwd(), fetchImpl } = {}) {
   if (env.GITHUB_EVENT_NAME !== 'pull_request') {
     return {
@@ -264,6 +421,7 @@ export async function classifyPullRequest(env, { cwd = process.cwd(), fetchImpl 
   if (typeof forceLabel !== 'string' || !FORCE_LABEL.test(forceLabel)) {
     throw new DocsOnlyConfigError('TREE_PASS_FORCE_LABEL must be a label name')
   }
+  const versionBump = versionBumpSetting(env)
   let labels
   try {
     // Read when the job runs, as the marker does, so a label added later
@@ -289,7 +447,12 @@ export async function classifyPullRequest(env, { cwd = process.cwd(), fetchImpl 
   }
   let changes
   try {
-    changes = readChanges({ mergeSha: env.GITHUB_SHA, headSha: env.TREE_PASS_HEAD_SHA, cwd })
+    changes = readChanges({
+      mergeSha: env.GITHUB_SHA,
+      headSha: env.TREE_PASS_HEAD_SHA,
+      cwd,
+      versionBump,
+    })
   } catch (error) {
     if (error instanceof DocsOnlyConfigError) throw error
     return {
@@ -297,7 +460,7 @@ export async function classifyPullRequest(env, { cwd = process.cwd(), fetchImpl 
       reason: `the changed files could not be read (${String(error.message).trim()})`,
     }
   }
-  return classify(changes)
+  return classify(changes, { versionBump })
 }
 
 function setOutput(env, name, value) {
@@ -329,7 +492,9 @@ function annotation(level, text) {
 const LISTED_PATHS = 20
 
 // Sets `docs-only` to `true` or `false`. Any error other than a configuration
-// error leaves `false`, so the step stays green and the run runs in full.
+// error leaves `false`, so the step stays green and the run runs in full. A
+// version bump that counts sets `true` as well; the notice and the summary
+// say which of the two it is.
 export async function runDocsOnly(env, { cwd = process.cwd(), fetchImpl, log = console } = {}) {
   let verdict
   try {
@@ -339,19 +504,26 @@ export async function runDocsOnly(env, { cwd = process.cwd(), fetchImpl, log = c
     verdict = { docsOnly: false, reason: `the change could not be classified (${error.message})` }
   }
   setOutput(env, 'docs-only', verdict.docsOnly ? 'true' : 'false')
+  // What a `true` skips, for a docs-only change and for a version bump.
+  const skipped =
+    verdict.version === undefined
+      ? 'the steps that read no documentation are skipped'
+      : 'as a version bump, so the steps that do not depend on the version are skipped'
   log.log(
     annotation(
       'notice',
-      verdict.docsOnly
-        ? `Docs-only change, so the steps that read no documentation are skipped: ${verdict.reason}`
-        : `Not a docs-only change, so every step runs: ${verdict.reason}`
+      !verdict.docsOnly
+        ? `Not a docs-only change, so every step runs: ${verdict.reason}`
+        : verdict.version === undefined
+          ? `Docs-only change, so ${skipped}: ${verdict.reason}`
+          : `Version bump, which counts as a docs-only change here, so the steps that do not depend on the version are skipped: ${verdict.reason}`
     )
   )
   const paths = verdict.docsOnly ? verdict.paths : []
   summary(env, [
     '### Docs-only change',
     '',
-    `- Docs-only: ${verdict.docsOnly ? 'yes, the steps that read no documentation are skipped' : 'no'} (${oneLine(verdict.reason)})`,
+    `- Docs-only: ${verdict.docsOnly ? `yes, ${skipped}` : 'no'} (${oneLine(verdict.reason)})`,
     ...paths.slice(0, LISTED_PATHS).map(path => `  - \`${path}\``),
     ...(paths.length > LISTED_PATHS ? [`  - and ${paths.length - LISTED_PATHS} more`] : []),
     ...(verdict.docsOnly

@@ -19,6 +19,8 @@ import {
   DOCS_EXCLUDED,
   DocsOnlyConfigError,
   MAX_CHANGED_PATHS,
+  VERSION_FILES,
+  VERSION_KEYED_SOURCES,
   classify,
   classifyPullRequest,
   isAllowlisted,
@@ -481,9 +483,12 @@ const BASE_FILES = {
 
 // A head on a branch that `change` makes, a base that moved on since with a
 // change of its own to code, and GitHub's merge of the head into the base.
-function pullRequest(t, change, { add = true } = {}) {
+function pullRequest(t, change, { add = true, files = {} } = {}) {
   const repo = gitFixture(t)
-  for (const [file, content] of Object.entries(BASE_FILES)) repo.write(file, content)
+  // `files` adds to the base's files, and leaves out one it gives as undefined.
+  for (const [file, content] of Object.entries({ ...BASE_FILES, ...files })) {
+    if (content !== undefined) repo.write(file, content)
+  }
   repo.commit('base')
   repo.git('checkout', '-q', '-b', 'feature')
   change(repo)
@@ -656,6 +661,405 @@ test('the commit under test must be a merge of the head into a base', t => {
     if (depth === '1') assert.throws(read, /is not a merge of the pull request head/)
     else assert.equal(classify(read()).docsOnly, true)
   }
+})
+
+// --- Version bumps -----------------------------------------------------------
+
+const [PACKAGE_FILE, MANIFEST_FILE] = VERSION_FILES
+const [NOTICES_FILE, WALLET_CONFIG_FILE] = VERSION_KEYED_SOURCES
+const packageJson = (version, extra = {}) =>
+  `${JSON.stringify(
+    { name: 'qbit-extension', version, private: true, scripts: { build: 'gulp build' }, ...extra },
+    null,
+    2
+  )}\n`
+const manifestJson = (version, extra = {}) =>
+  `${JSON.stringify(
+    { manifest_version: 3, name: '__MSG_appName__', version, permissions: ['storage'], ...extra },
+    null,
+    2
+  )}\n`
+// A base at 1.0.10 whose bundled notices and configuration name no version.
+const VERSION_BASE_FILES = {
+  [PACKAGE_FILE]: packageJson('1.0.10'),
+  [MANIFEST_FILE]: manifestJson('1.0.10'),
+  [NOTICES_FILE]: 'export const LOCAL_VERSION_NOTICES = Object.freeze({})\n',
+  [WALLET_CONFIG_FILE]: "const LOCAL_WALLET_CONFIG = Object.freeze({ version: '' })\n",
+}
+const bump =
+  (version = '1.0.11') =>
+  repo => {
+    repo.write(PACKAGE_FILE, packageJson(version))
+    repo.write(MANIFEST_FILE, manifestJson(version))
+  }
+
+function versionPullRequest(t, change, { files = {}, ...options } = {}) {
+  return pullRequest(t, change, { ...options, files: { ...VERSION_BASE_FILES, ...files } })
+}
+
+function versionVerdictOf(pr, versionBump = true) {
+  return classify(readChanges({ mergeSha: pr.merge, headSha: pr.head, cwd: pr.dir, versionBump }), {
+    versionBump,
+  })
+}
+
+test('the version files and the version-keyed sources are tracked, and the version files agree', () => {
+  const staged = execFileSync('git', ['ls-files', '-s', '-z'], { cwd: repoRoot, encoding: 'utf8' })
+    .split('\0')
+    .filter(Boolean)
+    .map(line => /^([0-7]{6}) [0-9a-f]+ [0-3]\t(.+)$/.exec(line))
+  for (const path of [...VERSION_FILES, ...VERSION_KEYED_SOURCES]) {
+    // A file that moves away makes every version bump run in full, quietly.
+    assert.equal(staged.find(match => match?.[2] === path)?.[1], '100644', path)
+    assert.equal(isAllowlisted(path), false, path)
+  }
+  assert.equal(VERSION_FILES.length, 2)
+  const versions = VERSION_FILES.map(
+    path => JSON.parse(readFileSync(join(repoRoot, path), 'utf8')).version
+  )
+  assert.match(versions[0], /^[0-9]+\.[0-9]+\.[0-9]+$/)
+  assert.equal(versions[1], versions[0])
+})
+
+test('a pull request that only sets the version, with or without documentation, counts where a version bump may', t => {
+  const alone = versionPullRequest(t, bump())
+  assert.deepEqual(versionVerdictOf(alone), {
+    docsOnly: true,
+    reason: 'the only change sets the extension version to 1.0.11, in its two version files',
+    paths: VERSION_FILES,
+    version: '1.0.11',
+  })
+  const withNotes = versionPullRequest(t, repo => {
+    bump('1.1.0')(repo)
+    repo.write('docs/releases/release-notes.md', '# Release notes\n\n- The version is 1.1.0.\n')
+  })
+  const verdict = versionVerdictOf(withNotes)
+  assert.equal(verdict.docsOnly, true, verdict.reason)
+  assert.equal(verdict.version, '1.1.0')
+  assert.equal(
+    verdict.reason,
+    'the extension version is set to 1.1.0 in its two version files, and the other changed file is documentation that no skipped step reads'
+  )
+  assert.deepEqual(verdict.paths, ['docs/releases/release-notes.md', ...VERSION_FILES])
+  const withTwo = versionVerdictOf(
+    versionPullRequest(t, repo => {
+      bump()(repo)
+      repo.write('docs/a.md', '# A, changed\n')
+      repo.write('README.md', '# Project\n\nMore.\n')
+    })
+  )
+  assert.match(withTwo.reason, /and the other 2 changed files are documentation/)
+
+  // Without the setting, as in `Typecheck, test, and build`, it runs in full,
+  // and nothing is read of the version files.
+  for (const pr of [alone, withNotes]) {
+    const changes = readChanges({ mergeSha: pr.merge, headSha: pr.head, cwd: pr.dir })
+    assert.equal(changes.versionFiles, undefined)
+    assert.equal(changes.versionKeyed, undefined)
+    for (const verdictOff of [classify(changes), versionVerdictOf(pr, false)]) {
+      assert.equal(verdictOff.docsOnly, false)
+      assert.match(verdictOff.reason, /_base_v3\.json is not in the docs-only allowlist/)
+    }
+  }
+  // A docs-only change stays one, and has no version.
+  const docs = versionPullRequest(t, repo => repo.write('docs/a.md', '# A, changed\n'))
+  assert.deepEqual(versionVerdictOf(docs), {
+    docsOnly: true,
+    reason: '1 file changed, all documentation that no skipped step reads',
+    paths: ['docs/a.md'],
+  })
+})
+
+test('a version bump that changes anything else, or that a source names, runs in full', t => {
+  const single = (version, rest) => `{"name":"x","version":"${version}","rest":${rest}}\n`
+  for (const [label, change, reason, options] of [
+    [
+      'the package alone',
+      repo => repo.write(PACKAGE_FILE, packageJson('1.0.11')),
+      /package\.json changed but .*_base_v3\.json did not, so the two would not agree/,
+    ],
+    [
+      'the manifest alone',
+      repo => repo.write(MANIFEST_FILE, manifestJson('1.0.11')),
+      /_base_v3\.json changed but .*package\.json did not, so the two would not agree/,
+    ],
+    [
+      'another field of the package',
+      repo => {
+        bump()(repo)
+        repo.write(PACKAGE_FILE, packageJson('1.0.11', { scripts: { build: 'gulp build --x' } }))
+      },
+      /package\.json must change in the value of its version and in nothing else/,
+    ],
+    [
+      'a new permission in the manifest',
+      repo => {
+        bump()(repo)
+        repo.write(MANIFEST_FILE, manifestJson('1.0.11', { permissions: ['storage', 'tabs'] }))
+      },
+      /_base_v3\.json must change in the value of its version and in nothing else/,
+    ],
+    [
+      'a new key in the manifest',
+      repo => {
+        bump()(repo)
+        repo.write(MANIFEST_FILE, manifestJson('1.0.11', { key: 'abc' }))
+      },
+      /_base_v3\.json must change in the value of its version and in nothing else/,
+    ],
+    [
+      // The same JSON apart from the version, but a second line changed.
+      'a second line that reads as the same JSON',
+      repo => {
+        bump()(repo)
+        repo.write(
+          PACKAGE_FILE,
+          packageJson('1.0.11').replace('"private": true', '"private":  true')
+        )
+      },
+      /package\.json must change in the value of its version and in nothing else/,
+    ],
+    [
+      'a reformatted file',
+      repo => {
+        bump()(repo)
+        repo.write(MANIFEST_FILE, `${JSON.stringify(JSON.parse(manifestJson('1.0.11')))}\n`)
+      },
+      /_base_v3\.json must change in the value of its version and in nothing else/,
+    ],
+    [
+      // One line each, so only the JSON tells that more than the version changed.
+      'another value on the version line',
+      repo => {
+        repo.write(PACKAGE_FILE, single('1.0.11', 2))
+        repo.write(MANIFEST_FILE, single('1.0.11', 1))
+      },
+      /package\.json must change in the value of its version and in nothing else/,
+      { files: { [PACKAGE_FILE]: single('1.0.10', 1), [MANIFEST_FILE]: single('1.0.10', 1) } },
+    ],
+    [
+      'the same version, written differently',
+      repo => {
+        repo.write(PACKAGE_FILE, packageJson('1.0.10').replace('"version": ', '"version":  '))
+        repo.write(MANIFEST_FILE, manifestJson('1.0.10').replace('"version": ', '"version":  '))
+      },
+      /package\.json must change in the value of its version and in nothing else/,
+    ],
+    [
+      'two versions',
+      repo => {
+        repo.write(PACKAGE_FILE, packageJson('1.0.11'))
+        repo.write(MANIFEST_FILE, manifestJson('1.0.12'))
+      },
+      /package\.json and .*_base_v3\.json set different versions/,
+    ],
+    ...['1.0.11-beta.1', '1.0', '1.0.11.0', '01.0.11', '1.0.111111', 'v1.0.11', '1.0.x', ''].map(
+      version => [
+        `the version ${JSON.stringify(version)}`,
+        bump(version),
+        /package\.json sets a version that is not x\.y\.z/,
+      ]
+    ),
+    [
+      'a version that is not a string',
+      repo => {
+        repo.write(PACKAGE_FILE, packageJson(1011))
+        repo.write(MANIFEST_FILE, manifestJson('1.0.11'))
+      },
+      /package\.json is not a JSON object with a version, before or after the change/,
+    ],
+    [
+      'a version file that is not JSON',
+      repo => {
+        bump()(repo)
+        repo.write(MANIFEST_FILE, `${manifestJson('1.0.11')}// a comment\n`)
+      },
+      /_base_v3\.json is not a JSON object with a version, before or after the change/,
+    ],
+    [
+      'a base whose package has no version',
+      bump(),
+      /package\.json is not a JSON object with a version, before or after the change/,
+      { files: { [PACKAGE_FILE]: '{\n  "name": "qbit-extension"\n}\n' } },
+    ],
+    [
+      'a version file that is not an object',
+      bump(),
+      /_base_v3\.json is not a JSON object with a version, before or after the change/,
+      { files: { [MANIFEST_FILE]: '["1.0.10"]\n' } },
+    ],
+    [
+      'a version file that is null',
+      bump(),
+      /_base_v3\.json is not a JSON object with a version, before or after the change/,
+      { files: { [MANIFEST_FILE]: 'null\n' } },
+    ],
+    [
+      'a manifest that the change adds',
+      repo => {
+        repo.write(PACKAGE_FILE, packageJson('1.0.11'))
+        repo.write(MANIFEST_FILE, manifestJson('1.0.11'))
+      },
+      /_base_v3\.json was added/,
+      { files: { [MANIFEST_FILE]: undefined } },
+    ],
+    [
+      'a version file that is renamed',
+      repo => {
+        bump()(repo)
+        repo.git('mv', PACKAGE_FILE, 'apps/extension/package.old.json')
+      },
+      /was renamed from apps\/extension\/package\.json|package\.json was deleted/,
+    ],
+    [
+      'an executable version file',
+      repo => {
+        bump()(repo)
+        chmodSync(join(repo.dir, PACKAGE_FILE), 0o755)
+      },
+      /package\.json has mode 100644 to 100755/,
+    ],
+    [
+      'code as well',
+      repo => {
+        bump()(repo)
+        repo.write('src/index.js', 'export const answer = 43\n')
+      },
+      /src\/index\.js is not in the docs-only allowlist/,
+    ],
+    [
+      'an excluded document as well',
+      repo => {
+        bump()(repo)
+        repo.write('docs/pqc-derivation.md', '# Derivation, changed\n')
+      },
+      /docs\/pqc-derivation\.md is not in the docs-only allowlist/,
+    ],
+    [
+      'a notice for that version',
+      bump(),
+      /local-version-notices\.ts names version 1\.0\.11, which that release may act on/,
+      {
+        files: {
+          [NOTICES_FILE]:
+            "export const LOCAL_VERSION_NOTICES = Object.freeze({ '1.0.11': { notice: 'New' } })\n",
+        },
+      },
+    ],
+    [
+      'a bundled configuration that names that version',
+      bump(),
+      /local-wallet-config\.ts names version 1\.0\.11, which that release may act on/,
+      {
+        files: {
+          [WALLET_CONFIG_FILE]:
+            "const LOCAL_WALLET_CONFIG = Object.freeze({ version: '1.0.11' })\n",
+        },
+      },
+    ],
+    [
+      'a notice that the change itself adds',
+      repo => {
+        bump()(repo)
+        repo.write(NOTICES_FILE, "export const LOCAL_VERSION_NOTICES = { '1.0.11': {} }\n")
+      },
+      /local-version-notices\.ts is not in the docs-only allowlist/,
+    ],
+  ]) {
+    const verdict = versionVerdictOf(versionPullRequest(t, change, options))
+    assert.equal(verdict.docsOnly, false, label)
+    assert.match(verdict.reason, reason, label)
+    assert.equal(verdict.version, undefined, label)
+  }
+  // A notice for another version does not stop it.
+  const other = versionVerdictOf(
+    versionPullRequest(t, bump(), {
+      files: { [NOTICES_FILE]: "export const LOCAL_VERSION_NOTICES = { '1.0.9': {} }\n" },
+    })
+  )
+  assert.equal(other.docsOnly, true, other.reason)
+
+  // A version-keyed source that the tree does not have cannot be read, which
+  // the step turns into a full run.
+  for (const missing of VERSION_KEYED_SOURCES) {
+    const pr = versionPullRequest(t, bump(), { files: { [missing]: undefined } })
+    assert.throws(
+      () => readChanges({ mergeSha: pr.merge, headSha: pr.head, cwd: pr.dir, versionBump: true }),
+      /git cat-file/,
+      missing
+    )
+  }
+})
+
+test('the version verdict needs what was read of both files and of every version-keyed source', () => {
+  const entries = VERSION_FILES.map(path => ({
+    oldMode: '100644',
+    newMode: '100644',
+    status: 'M',
+    paths: [path],
+  }))
+  const numstat = VERSION_FILES.map(path => ({ binary: false, path }))
+  const versionFiles = [
+    { path: PACKAGE_FILE, before: packageJson('1.0.10'), after: packageJson('1.0.11') },
+    { path: MANIFEST_FILE, before: manifestJson('1.0.10'), after: manifestJson('1.0.11') },
+  ]
+  const versionKeyed = VERSION_KEYED_SOURCES.map(path => ({ path, text: '' }))
+  const verdict = changes => classify({ entries, numstat, ...changes }, { versionBump: true })
+  assert.equal(verdict({ versionFiles, versionKeyed }).docsOnly, true)
+  for (const [changes, reason] of [
+    [{}, /the version files could not be read/],
+    [{ versionFiles }, /the version files could not be read/],
+    [{ versionKeyed }, /the version files could not be read/],
+    [
+      { versionFiles: versionFiles.slice(0, 1), versionKeyed },
+      /_base_v3\.json is not a JSON object/,
+    ],
+    [
+      { versionFiles: [{ ...versionFiles[0], after: undefined }, versionFiles[1]], versionKeyed },
+      /package\.json is not a JSON object/,
+    ],
+    [
+      { versionFiles: [undefined, null, ...versionFiles.slice(1)], versionKeyed },
+      /package\.json is not a JSON object/,
+    ],
+    [
+      { versionFiles, versionKeyed: versionKeyed.slice(0, 1) },
+      /local-wallet-config\.ts could not be read/,
+    ],
+    [
+      { versionFiles, versionKeyed: [{ path: NOTICES_FILE }, versionKeyed[1]] },
+      /local-version-notices\.ts could not be read/,
+    ],
+    [
+      { versionFiles, versionKeyed: [versionKeyed[0], { ...versionKeyed[1], text: 'v1.0.11' }] },
+      /local-wallet-config\.ts names version 1\.0\.11/,
+    ],
+  ]) {
+    const refused = verdict(changes)
+    assert.equal(refused.docsOnly, false, JSON.stringify(changes))
+    assert.match(refused.reason, reason, JSON.stringify(changes))
+  }
+  // A binary version file, and one that git lists twice, are refused as any
+  // other file is.
+  assert.match(
+    classify(
+      {
+        entries,
+        numstat: [{ binary: true, path: PACKAGE_FILE }, numstat[1]],
+        versionFiles,
+        versionKeyed,
+      },
+      { versionBump: true }
+    ).reason,
+    /package\.json is binary/
+  )
+  assert.match(
+    classify(
+      { entries: [...entries, entries[0]], numstat, versionFiles, versionKeyed },
+      { versionBump: true }
+    ).reason,
+    /package\.json is not in the docs-only allowlist/
+  )
 })
 
 // --- The step --------------------------------------------------------------
@@ -847,6 +1251,115 @@ test('the step says docs-only only for a labelled-off pull request it could read
   }
 })
 
+test('the step counts a version bump only where DOCS_ONLY_VERSION_BUMP says so', async t => {
+  const pr = versionPullRequest(t, repo => {
+    bump()(repo)
+    repo.write('docs/releases/release-notes.md', '# Release notes\n\n- The version is 1.0.11.\n')
+  })
+  const docs = versionPullRequest(t, repo => repo.write('docs/a.md', '# A, changed\n'))
+  const unreadable = versionPullRequest(t, bump(), { files: { [NOTICES_FILE]: undefined } })
+  let index = 0
+  const run = async (target, extra, labels = []) => {
+    const temp = scratch(t, `docs-only-version-${(index += 1)}-`)
+    const env = stepEnvironment(target, temp, extra)
+    const lines = []
+    const verdict = await runDocsOnly(env, {
+      cwd: target.dir,
+      fetchImpl: labelsFetch(labels),
+      log: { log: line => lines.push(line) },
+    })
+    return {
+      verdict,
+      outputs: outputs(env.GITHUB_OUTPUT),
+      summary: readFileSync(env.GITHUB_STEP_SUMMARY, 'utf8'),
+      lines: lines.join('\n'),
+    }
+  }
+
+  const counted = await run(pr, { DOCS_ONLY_VERSION_BUMP: 'true' })
+  assert.deepEqual(counted.outputs, { 'docs-only': 'true' })
+  assert.equal(counted.verdict.version, '1.0.11')
+  assert.match(
+    counted.summary,
+    /- Docs-only: yes, as a version bump, so the steps that do not depend on the version are skipped \(the extension version is set to 1\.0\.11 in its two version files, and the other changed file is documentation/
+  )
+  for (const path of ['docs/releases/release-notes.md', ...VERSION_FILES]) {
+    assert.ok(counted.summary.includes(`  - \`${path}\`\n`), path)
+  }
+  assert.match(
+    counted.summary,
+    /Add the `ci:full-run` label and re-run all jobs to run everything\./
+  )
+  assert.match(
+    counted.lines,
+    /^::notice title=Docs-only change::Version bump, which counts as a docs-only change here, so the steps that do not depend on the version are skipped: /m
+  )
+
+  // A docs-only change reads the same with the setting on.
+  const plain = await run(docs, { DOCS_ONLY_VERSION_BUMP: 'true' })
+  assert.deepEqual(plain.outputs, { 'docs-only': 'true' })
+  assert.match(
+    plain.summary,
+    /- Docs-only: yes, the steps that read no documentation are skipped \(/
+  )
+  assert.match(plain.lines, /^::notice title=Docs-only change::Docs-only change, so the steps/m)
+
+  for (const [label, target, extra, labels, reason] of [
+    ['unset', pr, {}, [], /_base_v3\.json is not in the docs-only allowlist/],
+    [
+      'false',
+      pr,
+      { DOCS_ONLY_VERSION_BUMP: 'false' },
+      [],
+      /_base_v3\.json is not in the docs-only allowlist/,
+    ],
+    [
+      'the label',
+      pr,
+      { DOCS_ONLY_VERSION_BUMP: 'true' },
+      [FORCE_LABEL],
+      /the ci:full-run label forces a full run/,
+    ],
+    [
+      'a push',
+      pr,
+      { DOCS_ONLY_VERSION_BUMP: 'true', GITHUB_EVENT_NAME: 'push' },
+      [],
+      /push event always runs in full/,
+    ],
+    [
+      'a version-keyed source that cannot be read',
+      unreadable,
+      { DOCS_ONLY_VERSION_BUMP: 'true' },
+      [],
+      /the changed files could not be read \(Command failed: git cat-file blob [0-9a-f]{40}:packages\/wallet-background\/src\/config\/local-version-notices\.ts/,
+    ],
+  ]) {
+    const result = await run(target, extra, labels)
+    assert.deepEqual(result.outputs, { 'docs-only': 'false' }, label)
+    assert.match(result.verdict.reason, reason, label)
+    assert.match(result.summary, /- Docs-only: no \(/, label)
+    for (const line of result.summary.split('\n')) {
+      assert.match(line, /^(?:###? .+| {0,2}- .+|)$/, `${label}: ${JSON.stringify(line)}`)
+    }
+  }
+
+  // Any other value is a wiring error, which fails the step.
+  for (const value of ['', 'TRUE', 'True', '1', 'yes', ' true']) {
+    const temp = scratch(t, 'docs-only-version-config-')
+    await assert.rejects(
+      runDocsOnly(stepEnvironment(pr, temp, { DOCS_ONLY_VERSION_BUMP: value }), {
+        cwd: pr.dir,
+        fetchImpl: labelsFetch([]),
+        log: quiet,
+      }),
+      /DOCS_ONLY_VERSION_BUMP must be true, false or unset/,
+      JSON.stringify(value)
+    )
+    assert.deepEqual(outputs(join(temp, 'output')), {}, JSON.stringify(value))
+  }
+})
+
 function cli(args, env, cwd) {
   return spawnSync(process.execPath, [script, ...args], {
     cwd,
@@ -876,6 +1389,7 @@ test('the command line writes docs-only and fails closed', t => {
     [['extra'], {}],
     [[], { GITHUB_OUTPUT: '' }],
     [[], { TREE_PASS_FORCE_LABEL: '' }],
+    [[], { DOCS_ONLY_VERSION_BUMP: 'maybe' }],
   ]) {
     result = cli(args, { ...env, ...extra }, pr.dir)
     assert.equal(result.status, 1, JSON.stringify([args, extra]))

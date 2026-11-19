@@ -2539,10 +2539,16 @@ const SKIP_STEP = "steps.gate.outputs.skip != 'true'"
 // `waitSummary` is null for every gate but that of a job that reports while
 // the run waits for a signed head; that gate's last branch sets `wait`, never
 // `skip`, and says how to run G3.
+// `docsChange` is what the docs-only branch says the pull request changes:
+// where a version bump counts as docs-only too (`versionBump` below), it says
+// so.
+const DOCS_CHANGE = 'changes only documentation that no skipped step reads'
+const VERSION_DOCS_CHANGE = `${DOCS_CHANGE}, or only that and the extension version`
 const gateRun = (
   consequence,
   docsConsequence = consequence,
-  waitSummary = null
+  waitSummary = null,
+  docsChange = DOCS_CHANGE
 ) => `if [ "$MARKER_JOB_RESULT" = success ] && [ "$MARKER_SKIP" = true ]; then
   echo 'skip=true' >> "$GITHUB_OUTPUT"
   echo "This tree already passed this job in $MARKER_RUN_URL, ${consequence}" >> "$GITHUB_STEP_SUMMARY"
@@ -2551,7 +2557,7 @@ ${
     ? ''
     : `elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
   echo 'skip=true' >> "$GITHUB_OUTPUT"
-  echo "This pull request changes only documentation that no skipped step reads, ${docsConsequence} Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
+  echo "This pull request ${docsChange}, ${docsConsequence} Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
 `
 }${
   waitSummary === null
@@ -2563,6 +2569,8 @@ ${
 }fi
 `
 const GATE_RUN = gateRun('so its steps are skipped.')
+// The same gate where a version bump counts as docs-only.
+const VERSION_GATE_RUN = gateRun('so its steps are skipped.', undefined, null, VERSION_DOCS_CHANGE)
 // A job in `runsOnDocsOnly`: only a marker hit skips it.
 const MARKER_ONLY_GATE_RUN = gateRun('so its steps are skipped.', null)
 const AGGREGATE_GATE_RUN = gateRun(
@@ -2578,7 +2586,8 @@ const SIGNED_AGGREGATE_GATE_RUN = gateRun(
   'so the shards skipped their steps; this job still checks that every shard succeeded.',
   undefined,
   "GitHub has not verified the signature of this pull request's head commit, so G3 waits for " +
-    `a signed head and no shard started; this job checks that none did. ${HOW_TO_RUN_G3}`
+    `a signed head and no shard started; this job checks that none did. ${HOW_TO_RUN_G3}`,
+  VERSION_DOCS_CHANGE
 )
 const LANE_AGGREGATE_GATE_RUN = gateRun(
   'so the lanes skipped their steps; this job still checks that every lane succeeded.',
@@ -2590,6 +2599,8 @@ const LANE_AGGREGATE_GATE_RUN = gateRun(
 // former-owner.test.mjs reads their contents and codeowners.test.mjs their
 // names. No allowlist can name a reader that reads everything.
 const SECURITY_TOOLING_RUN = /^corepack pnpm run test:security-tooling$/m
+// The command that builds the extension package twice and compares the builds.
+const REPRODUCIBLE_BUILD_RUN = /^corepack pnpm run build:repro:extension\b/m
 const MARKED_WORKFLOWS = {
   '.github/workflows/ci.yml': {
     id: 'ci',
@@ -2622,6 +2633,11 @@ const MARKED_WORKFLOWS = {
     // on a docs-only change. `Dependency policy` runs them too, but it is not
     // required. The wiring test ties this list to the jobs that run them.
     runsOnDocsOnly: ['verify-workspace'],
+    // Whether a version bump counts as a docs-only change
+    // (DOCS_ONLY_VERSION_BUMP). Not here: these lanes build and package the
+    // extension under its version, and check the built manifest's version
+    // against package.json.
+    versionBump: false,
     // Never covered: they run on every event.
     uncovered: ['dependency-policy'],
     // ci.yml never waits for a signed head.
@@ -2634,6 +2650,8 @@ const MARKED_WORKFLOWS = {
     sharded: { 'playwright-g3-shard': 'playwright-release-gate' },
     lanes: {},
     runsOnDocsOnly: [],
+    // No scenario depends on which version the extension has.
+    versionBump: true,
     uncovered: [],
     // G3 waits for a signed head (signed-head-gate.mjs): the sharded job is
     // skipped whole, and the job that aggregates it reports under another
@@ -2941,11 +2959,32 @@ test('each marked workflow wires the lookup, the gates and the save the same way
     assert.equal(docsOnlyStep.if, undefined, where)
     assert.equal(docsOnlyStep['continue-on-error'], undefined, where)
     assert.equal(docsOnlyStep.run, 'node scripts/security/docs-only-change.mjs', where)
-    assert.deepEqual(docsOnlyStep.env, {
-      GH_TOKEN: '${{ github.token }}',
-      TREE_PASS_PR_NUMBER: '${{ github.event.pull_request.number }}',
-      TREE_PASS_HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
-    })
+    // Only a workflow whose skipped steps do not depend on the extension
+    // version lets a version bump count; the others leave the setting unset.
+    assert.deepEqual(
+      docsOnlyStep.env,
+      {
+        GH_TOKEN: '${{ github.token }}',
+        TREE_PASS_PR_NUMBER: '${{ github.event.pull_request.number }}',
+        TREE_PASS_HEAD_SHA: '${{ github.event.pull_request.head.sha }}',
+        ...(expected.versionBump ? { DOCS_ONLY_VERSION_BUMP: 'true' } : {}),
+      },
+      where
+    )
+    // A version bump changes the name and the manifest of the package that
+    // the reproducible build makes, so no workflow that makes it lets one
+    // count.
+    const buildsPackage = Object.values(jobs).some(job =>
+      (job.steps ?? []).some(step => REPRODUCIBLE_BUILD_RUN.test(step.run ?? ''))
+    )
+    assert.ok(
+      !(expected.versionBump && buildsPackage),
+      `${where}: a workflow that builds the extension package must not skip on a version bump`
+    )
+    assert.ok(
+      file !== '.github/workflows/ci.yml' || buildsPackage,
+      `${where}: the reproducible build was not found, so nothing ties versionBump to it`
+    )
     // G3 only: the signed-head check comes after the docs-only check, last,
     // reads both verdicts and sets the output its gates read.
     if (signedHead) {
@@ -3147,9 +3186,16 @@ test('each marked workflow wires the lookup, the gates and the save the same way
               ? LANE_AGGREGATE_GATE_RUN
               : marksOnly
                 ? MARKER_ONLY_GATE_RUN
-                : GATE_RUN,
+                : expected.versionBump
+                  ? VERSION_GATE_RUN
+                  : GATE_RUN,
         at
       )
+      // Every gate with a docs-only branch says that a version bump counts
+      // exactly where one does.
+      if (!marksOnly) {
+        assert.equal(gate.run.includes(VERSION_DOCS_CHANGE), expected.versionBump, at)
+      }
       for (const step of rest) {
         if (shardAggregate && step.name === SHARD_CHECK_NAME) continue
         if (laneAggregate && step.name === LANE_CHECK_NAME) continue
@@ -3634,6 +3680,13 @@ test('the gate step skips only on a successful marker job that said skip, and na
       GATE_RUN,
       'so its steps are skipped.',
       `changes only documentation that no skipped step reads, so its steps are skipped. ${rerun}`,
+    ],
+    [
+      'gated, where a version bump counts',
+      VERSION_GATE_RUN,
+      'so its steps are skipped.',
+      'changes only documentation that no skipped step reads, or only that and the extension ' +
+        `version, so its steps are skipped. ${rerun}`,
     ],
     // A job that runs in full on a docs-only change: no docs-only summary.
     ['marker only', MARKER_ONLY_GATE_RUN, 'so its steps are skipped.', null],

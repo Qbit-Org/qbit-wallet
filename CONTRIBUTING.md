@@ -149,7 +149,10 @@ skip it. See [`docs/package-release.md`](docs/package-release.md).
   `SECURITY.md`) skips the steps of three of those four lanes and of the G3
   shards, and both required checks still report success. The lane that runs
   the security tooling tests, which read every tracked file, runs in full,
-  and `Lint` and `Dependency policy` run as usual. To run everything, add the `ci:full-run`
+  and `Lint` and `Dependency policy` run as usual. A pull request that sets the
+  extension version in its two version files, and changes nothing else but
+  such documentation, skips the steps of the G3 shards too, and runs
+  everything else. To run everything, add the `ci:full-run`
   label and choose "Re-run all jobs". See
   [`docs/ci-docs-only.md`](docs/ci-docs-only.md).
 - G3 runs once the pull request's head commit is signed. While GitHub has

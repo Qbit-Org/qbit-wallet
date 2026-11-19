@@ -60,6 +60,8 @@ repository.
 - The extension version is 1.0.11.
 - The dependency exception for a picomatch advisory is removed, because
   GitHub withdrew the advisory (#245).
+- A pull request that only sets the extension version, with or without
+  documentation, no longer runs the browser scenarios.
 
 ### Known limitations
 
