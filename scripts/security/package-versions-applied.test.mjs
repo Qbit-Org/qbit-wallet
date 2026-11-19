@@ -434,7 +434,8 @@ test('a back-merge that brings a branch the default branch’s version passes', 
   assert.deepEqual(
     github.asked,
     VERSION_FILES.map(
-      file => `https://api.github.test/repos/Qbit-Org/qbit-wallet/contents/${file}?ref=main`
+      file =>
+        `https://api.github.test/repos/Qbit-Org/qbit-wallet/contents/${file}?ref=refs%2Fheads%2Fmain`
     )
   )
   assert.match(
@@ -460,7 +461,14 @@ test('a version the default branch does not have yet is still a release', async 
     })
     assert.equal(verdict.ok, false, JSON.stringify(versions))
     assert.equal(verdict.adopted, undefined)
+    assert.equal(verdict.compared, 'main')
     assert.deepEqual(verdict.pending, ['next-release.md'])
+    // The advice also says what to do if this is a back-merge that came late.
+    assert.match(report(verdict), /corepack pnpm release:prepare 1\.0\.12/)
+    assert.match(
+      report(verdict),
+      /If this change only merges `main` into another branch, it has to bring the version `main` has now: merge `main` again instead\.$/
+    )
   }
 })
 
@@ -479,6 +487,8 @@ test('the default branch itself, and a run the workflow did not wire, are judged
     const verdict = await run(env, { cwd: repo.dir, ...silent() })
     assert.equal(verdict.ok, false, JSON.stringify(env))
     assert.equal(verdict.adopted, undefined)
+    assert.equal(verdict.compared, undefined)
+    assert.doesNotMatch(report(verdict), /only merges/)
   }
   // A push to another branch is for that branch.
   const github = fakeGitHub('1.0.12')
@@ -549,8 +559,13 @@ test('a default branch that cannot be read is an error, never a pass', async t =
   )
   // What the workflow must give, when it gives a default branch at all.
   const none = () => assert.fail('no request')
-  await refused({ ...RUN_ENV, GH_TOKEN: '' }, none, /GH_TOKEN is missing or empty/)
-  await refused({ ...RUN_ENV, GITHUB_API_URL: 'http://api.github.test' }, none, /GITHUB_API_URL/)
+  // Running the check again does not mend these, and the error does not say to.
+  await refused({ ...RUN_ENV, GH_TOKEN: '' }, none, /^GH_TOKEN is missing or empty$/)
+  await refused(
+    { ...RUN_ENV, GITHUB_API_URL: 'http://api.github.test' },
+    none,
+    /^GITHUB_API_URL (?!.*run this check again)/
+  )
   await refused(
     { ...RUN_ENV, GITHUB_REPOSITORY: 'qbit-wallet' },
     none,
@@ -657,9 +672,16 @@ test('a changeset name with a newline stays on one annotation line', t => {
 
 test('ci.yml runs the check on every event, against the commit and its first parent', () => {
   const workflow = YAML.parse(readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8'))
-  const producers = Object.entries(workflow.jobs).filter(([, job]) => job.name === CHECK)
+  // The required name on a pull request's run only: under it, a run for a
+  // push or one started by hand, which judges the commit against its own
+  // parent, would stand in for the pull request's result on the same commit.
+  const producers = Object.entries(workflow.jobs).filter(([, job]) => job.name?.includes(CHECK))
   assert.equal(producers.length, 1)
   const [[, job]] = producers
+  assert.equal(
+    job.name,
+    `\${{ github.event_name == 'pull_request' && '${CHECK}' || '${CHECK} (not a pull request)' }}`
+  )
   // Nothing can skip it: it waits for no other job and has no condition, so
   // the tree pass marker and a docs-only change leave it running.
   assert.equal(job.needs, undefined)

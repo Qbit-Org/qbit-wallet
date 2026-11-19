@@ -246,8 +246,13 @@ jobs:
   # skipped as docs-only: its verdict depends on the commit's first parent as
   # well as its tree, and it takes seconds. It waits for no other job and has
   # no condition, so it reports on every run.
+  #
+  # It has the required name only on a pull request. A check belongs to the
+  # commit, and a run for a push or one started by hand judges the commit
+  # against its own parent, not against a pull request's target, so under the
+  # required name it could stand in for the pull request's result.
   package-versions:
-    name: Package versions applied
+    name: ${{ github.event_name == 'pull_request' && 'Package versions applied' || 'Package versions applied (not a pull request)' }}
     # The script needs only Node's built-in modules, so the runner image's
     # Node runs it, without a download or an install that could fail.
     runs-on: ubuntu-24.04

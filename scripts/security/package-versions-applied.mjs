@@ -3,7 +3,7 @@ import { appendFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { VERSION_FILES, isHigher, versionParts } from './docs-only-change.mjs'
-import { API_TIMEOUT_MS, githubJson } from './tree-pass-marker.mjs'
+import { API_TIMEOUT_MS, TreePassConfigError, githubJson } from './tree-pass-marker.mjs'
 
 // The `Package versions applied` check. A release is prepared by setting the
 // extension version and applying the pending changesets in the same pull
@@ -177,21 +177,29 @@ export function judge({ cwd = process.cwd(), revision = 'HEAD' } = {}) {
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 const BRANCH = /^(?!.*\.\.)[A-Za-z0-9._/-]+$/
 
+// The default branch a failing change is compared with, or undefined where it
+// is not: when the run is for the default branch itself, a pull request into
+// it or a push to it, and when the workflow gave no default branch or the run
+// names no branch, as in a local run.
+export function comparedBranch(env) {
+  const branch = env.PACKAGE_VERSIONS_DEFAULT_BRANCH
+  const target = env.GITHUB_BASE_REF || env.GITHUB_REF_NAME
+  return !branch || !target || target === branch ? undefined : branch
+}
+
 // Whether a change that fails only brings its branch to the version the
 // default branch already has: every version file it moved now holds exactly
 // the version that file has on the default branch. Then it prepares no
 // release, and the changesets it leaves belong to the branch's own release.
 //
-// False, with no request, where that cannot be: when the run is for the
-// default branch itself, a pull request into it or a push to it, and when the
-// workflow gave no default branch, as in a local run. Otherwise the answer
-// comes from GitHub, and a read that fails or cannot be understood throws: the
-// check then fails as one that could not judge, and running it again asks
-// again.
+// False, with no request, where there is no branch to compare with
+// (comparedBranch). Otherwise the answer comes from GitHub, read by the
+// branch's full ref so that no tag of the same name is read in its place, and
+// a read that fails or cannot be understood throws: the check then fails as
+// one that could not judge, and running it again asks again.
 export async function adoptsDefaultBranchVersion(verdict, env, { fetchImpl } = {}) {
-  const branch = env.PACKAGE_VERSIONS_DEFAULT_BRANCH
-  const target = env.GITHUB_BASE_REF || env.GITHUB_REF_NAME
-  if (!branch || !target || target === branch) return false
+  const branch = comparedBranch(env)
+  if (branch === undefined) return false
   if (!BRANCH.test(branch)) {
     throw new PackageVersionsError('PACKAGE_VERSIONS_DEFAULT_BRANCH is not a branch name')
   }
@@ -203,7 +211,7 @@ export async function adoptsDefaultBranchVersion(verdict, env, { fetchImpl } = {
     try {
       const body = await githubJson({
         apiUrl: env.GITHUB_API_URL,
-        path: `/repos/${env.GITHUB_REPOSITORY}/contents/${file}?ref=${encodeURIComponent(branch)}`,
+        path: `/repos/${env.GITHUB_REPOSITORY}/contents/${file}?ref=${encodeURIComponent(`refs/heads/${branch}`)}`,
         token: env.GH_TOKEN,
         fetchImpl,
         timeoutMs: API_TIMEOUT_MS,
@@ -214,6 +222,8 @@ export async function adoptsDefaultBranchVersion(verdict, env, { fetchImpl } = {
       version = JSON.parse(Buffer.from(body.content, 'base64').toString('utf8'))?.version
       if (typeof version !== 'string' || version === '') throw new Error('it has no version')
     } catch (error) {
+      // A setting the workflow gives wrongly stays wrong when the check is run again.
+      if (error instanceof TreePassConfigError) throw new PackageVersionsError(error.message)
       throw new PackageVersionsError(
         `${file} on ${branch} could not be read (${oneLine(error.message)}); run this check again`
       )
@@ -262,7 +272,10 @@ export function report(verdict) {
     `${change} and leaves ${count} pending ${count === 1 ? 'changeset' : 'changesets'} in ${CHANGESET_DIR}/ (${names}${more}). ` +
     `A release applies them in the pull request that sets its version: run \`corepack pnpm release:prepare ${versionParts(verdict.to) ? oneLine(verdict.to) : '<x.y.z>'}\` and commit what it changes. ` +
     'It can be run again for a changeset that landed after the version was set. ' +
-    'If a file is still there afterwards, it names only a package that changesets ignores and is never applied: delete it.'
+    'If a file is still there afterwards, it names only a package that changesets ignores and is never applied: delete it.' +
+    (verdict.compared
+      ? ` If this change only merges \`${oneLine(verdict.compared)}\` into another branch, it has to bring the version \`${oneLine(verdict.compared)}\` has now: merge \`${oneLine(verdict.compared)}\` again instead.`
+      : '')
   )
 }
 
@@ -271,8 +284,11 @@ export async function run(
   { cwd = process.cwd(), log = console, fetchImpl } = {}
 ) {
   let verdict = judge({ cwd })
-  if (!verdict.ok && (await adoptsDefaultBranchVersion(verdict, env, { fetchImpl }))) {
-    verdict = { ...verdict, ok: true, adopted: env.PACKAGE_VERSIONS_DEFAULT_BRANCH }
+  const branch = comparedBranch(env)
+  if (!verdict.ok && branch !== undefined) {
+    verdict = (await adoptsDefaultBranchVersion(verdict, env, { fetchImpl }))
+      ? { ...verdict, ok: true, adopted: branch }
+      : { ...verdict, compared: branch }
   }
   const text = report(verdict)
   log.log(annotation(verdict.ok ? 'notice' : 'error', text))

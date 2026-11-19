@@ -62,7 +62,9 @@ a person prepares and which lands like any other
 [`../workflows/ci.yml`](../workflows/ci.yml), fails a pull request that
 sets a new extension version and would leave a changeset pending on the
 branch it targets. A back-merge, which brings a release branch the version
-`main` already has, passes. It judges the pull request against that branch's tip as
+`main` already has, passes. Only a pull request's run reports under that
+name: a run for a push, or one started by hand, judges the commit against its
+own parent and reports as `Package versions applied (not a pull request)`. It judges the pull request against that branch's tip as
 it was at the pull request's last push, and the rulesets don't require a
 branch to be up to date: a changeset that reaches the target branch
 afterwards is not seen until the next push. Running `CI` again judges the

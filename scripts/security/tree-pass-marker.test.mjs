@@ -3542,12 +3542,17 @@ test('every required check comes from a job that reports a real result in the sk
     }
     assert.equal(producers.length, 1, `${context} must come from exactly one job`)
     // Any other name that job can have is no required check: the waiting
-    // name of `Playwright G3 scenarios` is the one such name.
+    // name of `Playwright G3 scenarios`, and the name `Package versions
+    // applied` has on a run that is not a pull request's, are the only such
+    // names.
     const [producer] = producers
     for (const other of namesJobCanHave(producer.job, producer.name)) {
       if (other === context) continue
       assert.ok(!required.has(other), `${producer.name} can also report as ${other}`)
-      assert.equal(other, WAITING_G3, `${producer.name} can report as ${other}`)
+      assert.ok(
+        [WAITING_G3, 'Package versions applied (not a pull request)'].includes(other),
+        `${producer.name} can report as ${other}`
+      )
     }
     // Nor may a leg of a matrix job take the name: GitHub names each leg
     // with its matrix values, in the name or after it (after the job ID when
