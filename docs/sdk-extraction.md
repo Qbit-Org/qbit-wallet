@@ -8,13 +8,13 @@ wallets and applications can reuse them, and the wallet installs them from npm.
 
 ```text
 @qbit-oss/pqc 0.1.1       <- Qbit-Org/qbit-pqc, signed tag v0.1.1 (4164120)
-@qbit-oss/protocol 0.1.1  <- Qbit-Org/qbit-js,  signed tag v0.1.1 (1cbf4b3)
-@qbit-oss/api 0.1.1       <- Qbit-Org/qbit-js,  signed tag v0.1.1 (1cbf4b3)
+@qbit-oss/protocol 0.1.2  <- Qbit-Org/qbit-js,  signed tag v0.1.2 (de7aae7)
+@qbit-oss/api 0.1.2       <- Qbit-Org/qbit-js,  signed tag v0.1.2 (de7aae7)
 ```
 
-Each package is an exact dependency (`"0.1.1"`, no range) of the wallet
+Each package is an exact dependency with no version range of the wallet
 packages that import it. Each was published with npm provenance by its
-repository's `.github/workflows/publish.yml` from `refs/tags/v0.1.1`.
+repository's `.github/workflows/publish.yml` from the tag listed above.
 `scripts/security/sdk-package-pins.json` records each version, registry
 integrity and provenance, plus the SHA-256 of `@qbit-oss/pqc`'s
 `wasm/pqc.mjs` and `wasm/pqc.wasm` and of the qbit Core derivation and

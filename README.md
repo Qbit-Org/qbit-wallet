@@ -32,7 +32,7 @@ packages/
 ```
 
 The Qbit SDK comes from npm at exact versions: `@qbit-oss/protocol` and
-`@qbit-oss/api` 0.1.1, published with provenance from the signed `v0.1.1` tag
+`@qbit-oss/api` 0.1.2, published with provenance from the signed `v0.1.2` tag
 of [Qbit-Org/qbit-js](https://github.com/Qbit-Org/qbit-js), and
 `@qbit-oss/pqc` 0.1.1 from the signed `v0.1.1` tag of
 [Qbit-Org/qbit-pqc](https://github.com/Qbit-Org/qbit-pqc).

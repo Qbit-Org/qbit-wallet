@@ -181,7 +181,9 @@ export interface PsbtSpendSummary {
   /**
    * What leaves the wallet, fee included: `walletInputValue - walletOutputValue`.
    * Negative when the wallet gains. Absent when an input's spent output is
-   * missing, so its owner and value are unknown.
+   * missing, so its owner and value are unknown. For a PSBT whose outputs
+   * exceed its inputs (`DecodedPsbt.fundingShortfall`), the most the wallet's
+   * signatures can let leave it, with no fee of the wallet's in it.
    */
   netSpend?: number
   /**
@@ -225,7 +227,18 @@ export interface DecodedPsbt {
   isScammer: boolean
   recommendedFeeRate: number
   shouldWarnFeeRate: boolean
+  /** Every input's value is known and the inputs cover the outputs, so `fee` is the exact fee. */
   isCompleted: boolean
+  /**
+   * Present only when every input's value is known and the outputs exceed
+   * the inputs: by how much, in base units, for the outputs currently in the
+   * PSBT, excluding any network fee. Inputs can still be added, and outputs
+   * no signature commits to changed or removed, so it is not an amount that
+   * must be added later. Such a PSBT is not completed, and its `fee` and
+   * `feeRate` (0) are no fee. Absent when an input's value is unknown, and for
+   * a funded PSBT.
+   */
+  fundingShortfall?: number
   spendSummary: PsbtSpendSummary
   /** One owner for each output, in output order, for the account `spendSummary` is relative to. */
   outputOwners?: PsbtOutputOwner[]
@@ -248,6 +261,8 @@ export interface PsbtLocalInfo {
   /** Total value of all inputs in satoshis; 0 if PSBT is not completed */
   totalInput: number
   isCompleted: boolean
+  /** The gap for the outputs shown, excluding any fee (`DecodedPsbt.fundingShortfall`). */
+  fundingShortfall?: number
   hasSighashNone: boolean
   parseError: boolean
   /**

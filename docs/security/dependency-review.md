@@ -9,7 +9,7 @@ the extension and keyring-service, twice more on 2026-11-05, after the
 were removed, and on 2026-11-10 after `bitcoinjs-lib` moved to 6.1.8 for the
 critical `GHSA-8vv3-6qpc-gpw6`; on 2026-11-17 the high `picomatch` advisory
 `GHSA-fc5q-39xc-vjpf` was accepted with the evidence unchanged, and on
-2026-11-18 its exception was removed after GitHub withdrew the advisory)
+2026-11-18 its exception was removed after GitHub withdrew the advisory. The SDK 0.1.2 audit and inventory were regenerated that day.)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -27,15 +27,15 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `41ce38b884f4bc8b3a0e9d9de18ac68de4a2c6ff` |
+| Audited commit | `7a9cdf6d0920354fdc2598da4fd2cdfdaefbe90b` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `d8b1406274a8a86d953e675faad52e615937df69fd736c92f61c85322f45e2e3` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `a8de3bbc98a996722ea1f954b562dce29d8741b70725846c643028a340bbac88` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `67af7f874e3b3fd8f6201e684d3b06106cd6efda2f13cc7639de01d0be367910` |
-| Qbit SDK npm packages | `@qbit-oss/pqc`, `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1, pinned in `scripts/security/sdk-package-pins.json` |
+| `pnpm-lock.yaml` SHA-256 | `95261f601c03194eee23c280ee59220f19b418d085e9357bbe90b083d4e28c0d` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `16f1808be89b23ecb6f526050016b00d8059b2912203719772c1f3fc23ee9e77` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `2831f908b46be7b0998a5e02ce2eac03aefcf1c68e13d26eb021a866a500ad80` |
+| Qbit SDK npm packages | `@qbit-oss/pqc` 0.1.1 and `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.2, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
 all 386 direct declarations, all 178 resolved packages classified as crypto-,
@@ -150,16 +150,16 @@ moderate, and 9 low.
 | Audited result `802dc03` (2026-11-05, `wallet-api` and `notification-service` removed) | 0 | 0 | 33 | 10 | 43 |
 | Audited result `a941b06` (2026-11-05, `antd` removed, taking `moment@2.30.1` with it) | 0 | 0 | 32 | 10 | 42 |
 | Advisory-feed drift at unchanged-lock `release/1.0.9` `de81656` | 1 | 0 | 32 | 10 | 43 |
-| Current audited result `41ce38b` (2026-11-10, `bitcoinjs-lib` 6.1.8) | 0 | 0 | 32 | 10 | 42 |
+| Audited result `41ce38b` (2026-11-10, `bitcoinjs-lib` 6.1.8) | 0 | 0 | 32 | 10 | 42 |
 | Advisory-feed drift at unchanged-lock `release/1.0.10` `374f694` (2026-11-17, `picomatch` accepted) | 0 | 1 | 32 | 9 | 42 |
 | Advisory-feed drift at unchanged-lock `release/1.0.11` `15a5b64` (2026-11-18, `picomatch` advisory withdrawn) | 0 | 0 | 32 | 9 | 41 |
+| Current audited result `7a9cdf6` (2026-11-18, Qbit protocol and API 0.1.2) | 0 | 0 | 32 | 9 | 41 |
 
 pnpm 8's metadata counted vulnerable dependency occurrences and pnpm 11's
 counts advisory records, one per record however many installed versions it
-lists as findings; neither counts independent vulnerabilities. The final
-audit contains 42 advisory records representing 37 unique advisory/package
-pairs. Four records affect a directly declared package and 38 are transitive.
-No critical or high advisory remains, and no risk exception is in force.
+lists as findings. Neither counts independent vulnerabilities. The current
+audit contains 41 advisory records. Four affect a directly declared package
+and 37 are transitive. It reports zero critical or high advisories.
 
 Registry advisory data can change without a repository change, so this
 snapshot is not permanent. The live audit runs in the `Dependency policy` CI
@@ -276,7 +276,7 @@ The final audit has the following direct advisory records:
 | `tsup` | `GHSA-3mv9-4h5g-vhg3` | Low | Development build tooling |
 
 Across all advisory dependency paths, the inventory records 30 reachable path
-occurrences, 986 extension-build occurrences, 554 test-only occurrences, and
+occurrences, 984 extension-build occurrences, 548 test-only occurrences, and
 530 development-tooling occurrences. At `eae9633` they were 35, 1,000, 606 and
 609. The advisory feed then narrowed the `minimatch` record
 `GHSA-g3hv-75wg-m249` to 9.0.9 and 10.2.6, though 3.1.5 and 5.1.9 stayed in the
@@ -337,7 +337,7 @@ refresh removed the declaration and deleted both exceptions before their
 since the merged baseline were upgraded; none was suppressed merely for being
 build-only.
 
-### picomatch
+### picomatch disposition on 2026-11-17
 
 The `picomatch@2.3.2/4.0.5` exception for `GHSA-fc5q-39xc-vjpf`, accepted on
 2026-11-17 in #238 as conditionally reachable through Node-side build, test,
@@ -365,7 +365,7 @@ and protocol dependencies with the greatest impact:
 | Package or source | Reviewed use | Disposition |
 | --- | --- | --- |
 | `@qbit-oss/pqc` 0.1.1 (npm) | PQC keys, signatures, counters, and WASM | Exact version, registry integrity, provenance (`Qbit-Org/qbit-pqc` `v0.1.1`, compared with the registry attestation), WASM and qbit Core fixture digests pinned; golden and qbit Core vectors, pin check, and extension import smoke are required here; package tests, MV3 smoke and reproducible rebuild run upstream |
-| `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.1 (npm) | qbit protocol/API encoding | Exact version, registry integrity and provenance (`Qbit-Org/qbit-js` `v0.1.1`, compared with the registry attestation) pinned; qbit Core sighash/PSBT vectors and protocol/Core conformance are required here; package tests run upstream |
+| `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.2 (npm) | qbit protocol/API encoding | Exact version, registry integrity and provenance (`Qbit-Org/qbit-js` `v0.1.2`, compared with the registry attestation) pinned; qbit Core sighash/PSBT vectors and protocol/Core conformance are required here; package tests run upstream |
 | `@noble/curves` 1.4.2/1.7.0; `@noble/hashes` 1.4.0/1.6.0/1.8.0 | Curve and hash primitives | Retain exact closure and conformance evidence |
 | `bitcoinjs-lib@6.1.8`; `tiny-secp256k1@2.2.3` | PSBT and classical signing | Wallet tests bind displayed and signed transaction bytes; 6.1.8 fixes the critical `GHSA-8vv3-6qpc-gpw6` in `Block.checkTxRoots()`, which the wallet never calls, and keeps 6.1.6's `psbt.js` byte for byte, so the workspace patch applies unchanged |
 | `bitcore-lib@10.0.0`; `hdkey@2.1.0`; `bip39@3.1.0` | HD derivation, extended-key parsing, and mnemonics | Derivation/recovery tests required; no signing through transitive `elliptic` |
@@ -727,8 +727,16 @@ adjacent equal pair, `Block.calculateMerkleRoot` passes that flag on and
 `checkTxRoots` rejects a block that raises it, `initEccLib` accepts an options
 argument, and `Transaction` gains `stripWitnesses`. Webpack's module ids are
 unchanged, and the PSBT module, which the workspace patch edits, is
-byte-identical. The dependency evidence this review is bound to was generated
-at `41ce38b8`.
+byte-identical. The dependency evidence for that `bitcoinjs-lib` update was
+generated at `41ce38b8`.
+
+For the November 18 SDK update, the two new npm tarballs matched the signed
+qbit-js v0.1.2 release. The API and protocol packages each retain the MIT license.
+The frozen installs preserved the hoisted paths of all 3,005 registry package
+instances when comparing the release base with the SDK update. Two Chrome builds
+of the dependency-only change produced the same SHA-256,
+`546a0a0615fcc5bce84bdf438d34a7a785f4bae6acc59a47cdcfcc5c7b18ba0d`.
+The regenerated dependency inventory identifies `7a9cdf6` as its audited commit.
 
 ## Limitations and ongoing ownership
 

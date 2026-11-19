@@ -98,6 +98,15 @@ function TransactionItem(
                   <Text text={`${numUtils.satoshisToAmount(psbtInfo.fee)} ${qbitUnit}`} size="xs" color="textDim" />
                 )}
               </Row>
+              {/* No fee yet: the draft's gap for the outputs shown, never a fee of zero. */}
+              {!psbtInfo.isCompleted && psbtInfo.fundingShortfall !== undefined && (
+                <Text
+                  text={`${t('qbit_funding_shortfall')}: ${numUtils.satoshisToAmount(psbtInfo.fundingShortfall)} ${qbitUnit}`}
+                  size="xs"
+                  color="warning"
+                  data-testid={`multisign-funding-shortfall-${index}`}
+                />
+              )}
               {psbtInfo.hasSighashNone && <Text text="SIGHASH_NONE" size="xs" color="dangerText" />}
               {/* In a batch, a transaction's own new and cached counts depend on
                   the order its entries sign in, and count a duplicate's
