@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "7a9cdf6d0920354fdc2598da4fd2cdfdaefbe90b",
-  "lockfileSha256": "95261f601c03194eee23c280ee59220f19b418d085e9357bbe90b083d4e28c0d",
+  "auditedCommit": "b986c1bb6318a8687ef6c1dd4dc7b0c51f39e651",
+  "lockfileSha256": "077e499e5b29960bb85c2d1b57b98c306190103e6c98ad3f82d9629c6dba1745",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "16f1808be89b23ecb6f526050016b00d8059b2912203719772c1f3fc23ee9e77",
+    "sha256": "c9c8a80cb6a7881c9997fc56ad8fd7b98c21ed801d59aebfce2f5d0f48496007",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -14,19 +14,19 @@
   },
   "summary": {
     "workspaces": 18,
-    "registryLockEntries": 2080,
-    "directDeclarations": 386,
+    "registryLockEntries": 2079,
+    "directDeclarations": 385,
     "directDeclarationsByDelivery": {
       "development-quality-tooling": 123,
       "extension-build-packaging": 70,
-      "shipped-runtime": 138,
+      "shipped-runtime": 137,
       "test-only-tooling": 33,
       "workspace-contract": 22
     },
-    "securityAdjacentResolvedPackages": 178,
+    "securityAdjacentResolvedPackages": 177,
     "securityAdjacentByCategory": {
       "serialization": 91,
-      "crypto": 57,
+      "crypto": 56,
       "networking": 25,
       "archive": 8
     },
@@ -3192,18 +3192,6 @@
     {
       "workspace": "packages/wallet-core",
       "workspacePackage": "@qbit/wallet-core",
-      "package": "@bitcoinerlab/secp256k1",
-      "section": "dependencies",
-      "requested": "^1.0.5",
-      "resolved": "1.0.5",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": [
-        "crypto"
-      ]
-    },
-    {
-      "workspace": "packages/wallet-core",
-      "workspacePackage": "@qbit/wallet-core",
       "package": "@noble/hashes",
       "section": "dependencies",
       "requested": "^1.1.5",
@@ -4065,27 +4053,6 @@
       "peerVariants": 2,
       "integrity": "sha512-6WVLVJiTjqcQauBhn1LkICsR2H+zm62I3h9faTDKt1qP4jn2o72tSvqMwtGFKGTpojce0gJs+76eZ2uCHRZh0Q==",
       "directDeclarations": []
-    },
-    {
-      "package": "@bitcoinerlab/secp256k1",
-      "version": "1.0.5",
-      "categories": [
-        "crypto"
-      ],
-      "closures": [
-        "production-closure"
-      ],
-      "peerVariants": 1,
-      "integrity": "sha512-8gT+ukTCFN2rTxn4hD9Jq3k+UJwcprgYjfK/SQUSLgznXoIgsBnlPuARMkyyuEjycQK9VvnPiejKdszVTflh+w==",
-      "directDeclarations": [
-        {
-          "workspace": "packages/wallet-core",
-          "section": "dependencies",
-          "delivery": "shipped-runtime",
-          "requested": "^1.0.5",
-          "resolved": "1.0.5"
-        }
-      ]
     },
     {
       "package": "@bufbuild/protobuf",
