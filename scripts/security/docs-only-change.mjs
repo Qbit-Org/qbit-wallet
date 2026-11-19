@@ -186,12 +186,12 @@ function readVersionFile(text) {
 }
 
 // The three numbers of an x.y.z version, or undefined for anything else.
-function versionParts(version) {
+export function versionParts(version) {
   const parts = VERSION.exec(version)?.slice(1).map(Number)
   return parts?.every(part => part <= MAX_VERSION_PART) ? parts : undefined
 }
 
-function isHigher(parts, than) {
+export function isHigher(parts, than) {
   const index = parts.findIndex((part, at) => part !== than[at])
   return index !== -1 && parts[index] > than[index]
 }

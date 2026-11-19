@@ -7,8 +7,8 @@ repository admin applies it with `gh` from the repository root.
 | File | Enforces |
 | --- | --- |
 | `signed-commits.json` | A verified signature on every commit added to `main` and `release/*`. No bypass actors. |
-| `required-checks.json` | `main`: the `Typecheck, test, and build`, `Playwright G3 scenarios` and `signed-landing` checks must pass. No bypass actors. |
-| `required-checks-release.json` | `release/*`, except reconcile branches such as `release/1.0.8-reconcile-main`: pull requests only, with no approval required, squash merges and merge commits only, and the `Playwright G3 scenarios` and `signed-landing` checks must pass. No bypass actors. Not enforced when the branch is created. |
+| `required-checks.json` | `main`: the `Typecheck, test, and build`, `Playwright G3 scenarios`, `signed-landing` and `Package versions applied` checks must pass. No bypass actors. |
+| `required-checks-release.json` | `release/*`, except reconcile branches such as `release/1.0.8-reconcile-main`: pull requests only, with no approval required, squash merges and merge commits only, and the `Playwright G3 scenarios`, `signed-landing` and `Package versions applied` checks must pass. No bypass actors. Not enforced when the branch is created. |
 | `main-protection.json` | `main`: pull requests with one approval and a code owner's review, squash merges and merge commits only; no creation, deletion or force push. Organization admins and repository admins can bypass it when merging a pull request. |
 | `release-tags.json` | `v*` tags can't be moved or deleted. No bypass actors. |
 | `release-tag-create.json` | Only organization admins and repository admins can create a `v*` tag. |
@@ -54,10 +54,19 @@ conflict editor. If `main` has nothing the branch lacks, `git merge` makes no
 commit and the tip is still GitHub's, so put an empty commit you sign on top
 (`git commit -S --allow-empty`): the check judges the head commit.
 
-The release workflow's "version packages" pull request lands like any other,
-because the workflow makes its commit, which has no signature. Merge it soon
-after signing: every push to `main` makes the workflow replace that commit
-with a new unsigned one.
+No workflow opens a pull request of its own. Package versions and changelogs
+are applied in the pull request that sets a release's extension version, which
+a person prepares and which lands like any other
+([`docs/package-release.md`](../../docs/package-release.md)).
+`Package versions applied`, from
+[`../workflows/ci.yml`](../workflows/ci.yml), fails a pull request that
+changes the extension version and would leave a changeset pending on the
+branch it targets. It judges the pull request against that branch's tip as
+it was at the pull request's last push, and the rulesets don't require a
+branch to be up to date: a changeset that reaches the target branch
+afterwards is not seen until the next push. Running `CI` again judges the
+same merge and changes nothing, so before merging a release that waited, push
+again, or close the pull request and reopen it.
 
 On `main`, the maintainer's push dismisses earlier approvals, and whoever
 pushed can't give the new one. Someone else approves again, or an admin merges
@@ -164,6 +173,15 @@ its own changes. Before applying `required-checks-release.json`, check that
 every `release/*` branch with an open pull request has a copy that runs on
 pull requests into `release/**`. A branch without one never reports the check,
 and no pull request into it can merge.
+
+`Package versions applied` comes from
+[`../workflows/ci.yml`](../workflows/ci.yml) and is judged the same way.
+Before applying a file that requires it, check that the branches the file
+covers have a copy of `ci.yml` with that job: `main` for
+`required-checks.json`, and every `release/*` branch with an open pull
+request for `required-checks-release.json`. An open pull request then shows
+the check as expected until its next push, or until it is closed and
+reopened: running its `CI` run again uses the workflow it ran with before.
 
 Until `required-checks.json` and `main-protection.json` are applied as they
 are here, GitHub's rules for `main` lack some of the rules `signed-landing`

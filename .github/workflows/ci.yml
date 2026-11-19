@@ -237,6 +237,32 @@ jobs:
       - name: Enforce dependency and license policy
         run: corepack pnpm security:dependencies
 
+  # A required check on the default branch and on release branches
+  # (.github/rulesets): a change that sets the extension version must leave no
+  # changeset pending, so a release always applies them
+  # (docs/package-release.md). Not covered by the tree pass marker and never
+  # skipped as docs-only: its verdict depends on the commit's first parent as
+  # well as its tree, and it takes seconds. It waits for no other job and has
+  # no condition, so it reports on every run.
+  package-versions:
+    name: Package versions applied
+    # The script needs only Node's built-in modules, so the runner image's
+    # Node runs it, without a download or an install that could fail.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          # The commit under test and its first parent: on a pull request, the
+          # merge and the base branch's tip.
+          fetch-depth: 2
+
+      - name: Check that a version change leaves no changeset pending
+        run: node scripts/security/package-versions-applied.mjs
+
   # The work of `Typecheck, test, and build` runs in four lanes at once: the
   # two longest test suites each on their own, the remaining checks and
   # tests, and the extension build. Each lane is a job of its own, not a leg

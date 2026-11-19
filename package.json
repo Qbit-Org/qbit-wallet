@@ -50,6 +50,7 @@
     "security:dependencies": "node scripts/security/dependency-policy.mjs",
     "security:evidence": "node scripts/security/generate-dependency-evidence.mjs",
     "release:readiness": "node scripts/security/release-readiness.mjs",
+    "release:prepare": "node scripts/security/release-prepare.mjs",
     "test:security-adversarial": "bash scripts/security/run-adversarial-tests.sh",
     "test:security-tooling": "node --test scripts/security/*.test.mjs",
     "test:conformance": "node scripts/conformance/qbit-core-matrix.mjs",

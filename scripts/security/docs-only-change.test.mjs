@@ -231,6 +231,23 @@ const REVIEWED_MENTIONS = [
     reason: 'paths in temporary fixture repositories',
   },
   {
+    file: 'scripts/security/package-versions-applied.mjs',
+    value: '.md',
+    reason:
+      'its filter for the changesets in `.changeset/`, whose names it lists from the commit; it opens no markdown file',
+  },
+  {
+    file: /^scripts\/security\/(?:package-versions-applied|release-prepare)\.test\.mjs$/,
+    value: /^(?:\.changeset\/)?README\.md$/,
+    reason: 'a file it writes into a temporary fixture repository or directory',
+  },
+  {
+    file: 'scripts/security/release-prepare.mjs',
+    value: 'docs/releases/release-notes.md',
+    reason:
+      'the release notes, which the release:prepare command gives a heading; a person runs it and no workflow does, and its test uses a temporary root',
+  },
+  {
     file: 'tests/fixtures/release-storage/capture/capture.spec.ts',
     value: /^(?:\$\{name\} is not set; see )?tests\/fixtures\/release-storage\/README\.md$/,
     reason: "an error message naming the fixture's own README, which the allowlist excludes",

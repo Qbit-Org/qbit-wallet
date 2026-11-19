@@ -190,8 +190,9 @@ files:
   `verify-workspace`, reads named Dockerfiles, workflows, the regtest compose
   file and `core-pin.json`.
 - **Packaging and releases.** Package READMEs are in their `files`, CHANGELOGs
-  belong to changesets, and `.changeset/` is read by changesets. `release.yml`
-  reads no documentation.
+  belong to changesets, and `.changeset/` is read by changesets.
+  `Package versions applied` reads the names in `.changeset/` and the two
+  version files, and is never skipped.
 - **Workflows.** `pqc.yml`'s `paths` name `docs/pqc-derivation.md`; no other
   workflow names a document outside a comment.
 
