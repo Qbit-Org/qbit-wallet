@@ -8,7 +8,7 @@ import { chromium, expect, test, type BrowserContext, type Page } from '@playwri
 import { ApprovalsPage, OnboardingPage, SendPage, WalletHomePage } from '../../../e2e/pages'
 import { DappServer } from '../../../e2e/support/dapp-server'
 import { FIXED_MNEMONIC } from '../../../e2e/support/wallet-setup'
-import { CAPTURE_SEND_AMOUNT, releaseSavedUi } from '../release-storage'
+import { CAPTURE_SEND_AMOUNT, releaseSavedUi, savedDetailField } from '../release-storage'
 
 /**
  * Drives one released build through the setup the README describes and
@@ -350,20 +350,24 @@ test('captures the storage a released build writes', async () => {
     //     half-written send, left without sending. From 1.0.6 the card has no
     //     breakdown to show, and does not collapse, until a balance loads,
     //     which it never does offline: the capture then records that it
-    //     could not collapse it. Releases before 1.0.9 save the send form
-    //     with the two preferences; from 1.0.9 nothing typed there is saved.
+    //     could not collapse it. From 1.0.11 the breakdown starts closed:
+    //     nothing to collapse, and a click would open it. Releases before
+    //     1.0.9 save the send form with the two preferences; from 1.0.9
+    //     nothing typed there is saved.
     await goTo(page, extensionId, '/main')
     await home.waitUntilReady()
     await expect(home.balanceCard.getByTestId('balance-loading')).toHaveCount(0, {
       timeout: 60_000,
     })
-    const collapsible = (await home.balanceCard.getByTestId('balance-error').count()) === 0
-    if (!collapsible) {
+    const startsClosed = savedDetailField(manifest.version) === 'balanceDetailOpen'
+    const collapsible =
+      !startsClosed && (await home.balanceCard.getByTestId('balance-error').count()) === 0
+    if (!startsClosed && !collapsible) {
       notes.push(
         'Step 10: the balance card was not collapsed. This build collapses it only once a balance loads, and none loads offline.'
       )
     }
-    await home.balanceCard.click()
+    if (!startsClosed) await home.balanceCard.click()
     await home.balanceCard.locator('[src*="balance-eyes"], [style*="balance-eyes"]').click()
     await expect(
       home.balanceCard.locator('[src*="balance-eyes-closed"], [style*="balance-eyes-closed"]')
@@ -410,9 +414,13 @@ test('captures the storage a released build writes', async () => {
     // form of step 10 before 1.0.9, the two preferences alone from 1.0.9.
     // Anything else is refused here, before a file is written.
     const savedUi = releaseSavedUi(manifest.version, localStorageDump, contactAddress)
-    expect(savedUi.preferences.balanceDetailExpanded, 'the balance card is expanded').toBe(
-      !collapsible
-    )
+    if (startsClosed) {
+      expect(savedUi.preferences.balanceDetailOpen, 'the breakdown is open').toBe(false)
+    } else {
+      expect(savedUi.preferences.balanceDetailExpanded, 'the balance card is expanded').toBe(
+        !collapsible
+      )
+    }
 
     await mkdir(outputDir, { recursive: true })
     const write = (name: string, value: unknown) =>

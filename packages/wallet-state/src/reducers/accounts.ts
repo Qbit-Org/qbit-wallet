@@ -1,5 +1,11 @@
 import { createAction, createSlice, Slice } from '@reduxjs/toolkit'
-import { Account, AddressSummary, QbitBalanceSummary, TxHistoryItem } from '@qbit/wallet-shared'
+import {
+  Account,
+  AddressSummary,
+  QbitBalanceSummary,
+  TxHistoryItem,
+  isCompleteQbitBalance,
+} from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 
 import { resetWalletState, updateVersion } from '../actions/global'
@@ -197,6 +203,409 @@ function hasIncompleteBalance(state: AccountsState, address: string, chainType: 
   )
 }
 
+/**
+ * How a balance read ended, for the card (`BalanceReadRecord.outcome`):
+ * `complete`, an answer whose split is known, or that is past the explorer's
+ * listing limit, which is lasting and stated (`isCompleteBalance`);
+ * `failed`, a read that rejected, that the card gave up on, or whose read of
+ * the outputs got no further (`utxoReadFailed`); `partial`, any other
+ * answer, whose split is unknown for a passing reason: the outputs not all
+ * read yet, or the send guard busy.
+ */
+export type BalanceReadOutcomeKind = 'complete' | 'partial' | 'failed'
+
+/** A failed read of the address, as `BalanceReadRecord.failed` counts it. */
+export interface BalanceFailedRead {
+  requestId: number
+  /** When it began, in ms since the epoch; absent when the caller did not say. */
+  startedAt?: number
+}
+
+/**
+ * What the balance card knows of this page's reads of one address beyond
+ * the answers themselves: the read in progress, what it reported before its
+ * answer, the newest settled read, the failed reads no complete answer has
+ * answered since, and the last complete split it can show. Ordered by the
+ * same request ids as `balanceStatusMap` (see "Ordering" at
+ * `balanceReadMap`).
+ */
+export interface BalanceReadRecord {
+  /**
+   * The newest read this page began, until a read at least as new settles:
+   * the network the page showed as it began, when, and whether the user
+   * asked for it (the refresh control), began it or joined it.
+   */
+  reading?: {
+    requestId: number
+    chainType: string
+    startedAt: number
+    byUser: boolean
+  }
+  /**
+   * What the newest read reported before its answer
+   * (`QBIT_BALANCE_READ_PROGRESS`), on the network it read: its total, once
+   * the statistics answered, and how many of the outputs listed it has read.
+   * Never from a read older than the newest settled one. An answer of that
+   * read or of a newer one replaces it, and so does a newer read's report;
+   * a failure does not: the total stays the newest the page has.
+   */
+  early?: {
+    requestId: number
+    chainType: string
+    totalBalance?: number
+    read?: number
+    total?: number
+  }
+  /** The newest settled read, by request id: how it ended, and when it began. */
+  outcome?: {
+    requestId: number
+    chainType: string
+    kind: BalanceReadOutcomeKind
+    startedAt?: number
+  }
+  /**
+   * The failed reads on `chainType` since the trouble began, in request
+   * order, whatever order they arrived in: what the card's failure rule
+   * counts (see `balanceCardStatus`). The trouble ends, and the list with
+   * it, when a read begun after the newest of them settles without failing:
+   * with a complete answer, or an incomplete one that did not fail. Nothing
+   * else ends it, an early total or a count of a read in flight included.
+   */
+  failed?: {
+    chainType: string
+    reads: BalanceFailedRead[]
+  }
+  /**
+   * The total of the newest settled read that told one, on `chainType`: its
+   * answer's, or, for a read that failed after its statistics answered, its
+   * early total. The card shows it in place of an older complete answer
+   * whose total differs, which the answers' maps keep in place (an answer
+   * that could not read every output replaces no split there).
+   */
+  settledTotal?: {
+    requestId: number
+    chainType: string
+    totalBalance: number
+  }
+  /**
+   * The last complete split the card can show for the address on
+   * `chainType`: the newest complete answer of this page's own (`own`, its
+   * request id), or else the background's kept answer (`kept`, request id
+   * -1), which a passing answer of the page's own left in its place. A
+   * passing answer (outputs not all read, the send guard busy) with the same
+   * total leaves it shown, dimmed, until a complete answer replaces it.
+   */
+  split?: {
+    chainType: string
+    source: 'own' | 'kept'
+    requestId: number
+    balance: QbitBalanceSummary
+  }
+  /**
+   * The wallet locked after this page's reads up to this request id began
+   * (`balanceReadsLocked`): an answer of those is from before the lock, and
+   * shows as being refreshed until a complete answer of a read begun after
+   * the lock replaces it.
+   */
+  staleUpTo?: number
+}
+
+/** A balance the background kept from an earlier read (`getKeptAddressBalance`). */
+export interface KeptBalanceEntry {
+  balance: QbitBalanceSummary
+  /** When the read that answered it began, in ms since the epoch. */
+  readAt: number
+}
+
+/**
+ * Whether `balance` is complete: its split is known, or it is past the
+ * explorer's listing limit, a lasting cause the card states. Anything else is
+ * a split unknown for a passing reason. See `isCompleteQbitBalance`.
+ */
+export function isCompleteBalance(balance: QbitBalanceSummary | undefined): boolean {
+  return isCompleteQbitBalance(balance)
+}
+
+/** How a read that answered `balance` ended (`BalanceReadOutcomeKind`). */
+export function balanceReadOutcome(balance: QbitBalanceSummary): BalanceReadOutcomeKind {
+  if (balance.utxoReadFailed === true) return 'failed'
+  return isCompleteBalance(balance) ? 'complete' : 'partial'
+}
+
+function balanceReadRecord(state: AccountsState, address: string): BalanceReadRecord {
+  let record = state.balanceReadMap[address]
+  if (record === undefined) {
+    record = {}
+    state.balanceReadMap[address] = record
+  }
+  return record
+}
+
+/** The newest request id the record has seen settle. */
+function newestSettled(record: BalanceReadRecord | undefined): number {
+  return record?.outcome?.requestId ?? -Infinity
+}
+
+// Failures counted at most: the card's rule needs the count, the first and the latest.
+const MAX_FAILED_READS = 16
+
+/**
+ * Counts the read `requestId` on `chainType` as failed, unless a complete
+ * answer at least as new was stored for that network already.
+ */
+function noteFailedRead(
+  record: BalanceReadRecord,
+  chainType: string,
+  requestId: number,
+  startedAt: number | undefined
+): void {
+  const { split } = record
+  if (split?.source === 'own' && split.chainType === chainType && split.requestId >= requestId) {
+    return
+  }
+  if (record.failed?.chainType !== chainType) record.failed = { chainType, reads: [] }
+  const { reads } = record.failed
+  if (reads.some(read => read.requestId === requestId)) return
+  reads.push({ requestId, ...(startedAt !== undefined ? { startedAt } : {}) })
+  reads.sort((a, b) => a.requestId - b.requestId)
+  // Keep the first and the newest.
+  if (reads.length > MAX_FAILED_READS) reads.splice(1, reads.length - MAX_FAILED_READS)
+}
+
+/**
+ * The complete answer of the read `requestId` on `chainType`, whenever it
+ * arrives: the split to show from now on unless a newer complete answer is,
+ * and, if it was begun after the lock, the end of what was read before it.
+ */
+function noteCompleteAnswer(
+  record: BalanceReadRecord,
+  chainType: string,
+  requestId: number,
+  balance: QbitBalanceSummary
+): void {
+  const { split } = record
+  if (
+    split === undefined ||
+    split.chainType !== chainType ||
+    split.source === 'kept' ||
+    split.requestId < requestId
+  ) {
+    record.split = { chainType, source: 'own', requestId, balance: { ...balance } }
+  }
+  if (record.staleUpTo !== undefined && requestId > record.staleUpTo) delete record.staleUpTo
+}
+
+/**
+ * Ends the trouble on `chainType` (`BalanceReadRecord.failed`) if the read
+ * `requestId`, which settled without failing, was begun after every failed
+ * read counted (or is the newest of them, answering after the card gave up
+ * on it).
+ */
+function noteReadNotFailed(record: BalanceReadRecord, chainType: string, requestId: number): void {
+  const failed = record.failed
+  if (failed?.chainType !== chainType) return
+  if (failed.reads.every(read => read.requestId <= requestId)) delete record.failed
+}
+
+/**
+ * Records that the read `requestId` settled with `kind` on `chainType`, with
+ * `balance` when it answered. A failure counts unless a newer read has
+ * settled or a newer complete answer was stored; an answer that did not fail
+ * ends the trouble if it is newer than every failure counted
+ * (`BalanceReadRecord.failed`); a complete answer, whatever the order of
+ * arrival, becomes the split to show unless a newer complete answer is; an
+ * answer of the page's own drops the kept answer of its network (a passing
+ * one leaves its split shown, see `BalanceReadRecord.split`). Then, unless a
+ * newer read has settled already, it becomes the newest settled read: the
+ * read in progress no newer than it is over, its total (or the early total
+ * of a read that failed) is the newest settled one, and an answer replaces
+ * the early report of every read no newer than it.
+ */
+function settleBalanceRead(
+  state: AccountsState,
+  address: string,
+  settled: {
+    requestId: number
+    chainType: string | undefined
+    kind: BalanceReadOutcomeKind
+    startedAt?: number
+    /** The answer; absent for a read that rejected or was given up on. */
+    balance?: QbitBalanceSummary
+  }
+): void {
+  const { requestId, kind, balance } = settled
+  if (typeof requestId !== 'number') return
+  const record = balanceReadRecord(state, address)
+  const chainType = settled.chainType ?? record.reading?.chainType ?? ''
+  const startedAt = typeof settled.startedAt === 'number' ? settled.startedAt : undefined
+  const kept = state.balanceKeptMap[address]
+  if (balance !== undefined && kept?.balance.chainType === chainType) {
+    if (kind !== 'complete' && record.split?.chainType !== chainType) {
+      record.split = { chainType, source: 'kept', requestId: -1, balance: kept.balance }
+    }
+    delete state.balanceKeptMap[address]
+  }
+  // A failure that arrives after a newer read settled is not counted: that
+  // read says more of how the explorer answers now.
+  const late = requestId < newestSettled(record)
+  if (kind === 'failed' && !late) noteFailedRead(record, chainType, requestId, startedAt)
+  if (kind !== 'failed' && balance !== undefined) noteReadNotFailed(record, chainType, requestId)
+  if (kind === 'complete' && balance !== undefined) {
+    noteCompleteAnswer(record, chainType, requestId, balance)
+  }
+  if (late) return
+  const told =
+    balance !== undefined
+      ? { requestId, totalBalance: balance.totalBalance }
+      : record.early !== undefined &&
+          record.early.requestId <= requestId &&
+          record.early.chainType === chainType
+        ? { requestId: record.early.requestId, totalBalance: record.early.totalBalance }
+        : undefined
+  if (told !== undefined && isSatoshiAmount(told.totalBalance)) {
+    record.settledTotal = {
+      requestId: told.requestId,
+      chainType,
+      totalBalance: told.totalBalance,
+    }
+  }
+  if (record.reading !== undefined && record.reading.requestId <= requestId) delete record.reading
+  if (balance !== undefined && record.early !== undefined && record.early.requestId <= requestId) {
+    delete record.early
+  }
+  record.outcome = { requestId, chainType, kind, ...(startedAt !== undefined ? { startedAt } : {}) }
+}
+
+/**
+ * The card gave up on the read `requestId` of `address` (no answer within
+ * its 60 s): it counts as a failed read, as a rejection does, but it is no
+ * outcome of the answers (`balanceStatusMap` is left as it is).
+ */
+export const balanceReadGivenUp = createAction<{
+  address: string
+  requestId: number
+  chainType: string
+  startedAt?: number
+}>('accounts/balanceReadGivenUp')
+
+/**
+ * The wallet locked, after this page began the reads up to `before`: every
+ * answer of those is from before the lock (`BalanceReadRecord.staleUpTo`).
+ */
+export const balanceReadsLocked = createAction<{ before: number }>('accounts/balanceReadsLocked')
+
+/**
+ * The page (re)loaded its accounts for `chainType` (`useReloadAccounts`),
+ * whether the load succeeded or not: see `AccountsState.accountsLoaded`.
+ * `seq` orders the loads by when they began; a load that began before the
+ * one recorded, ending after it, is not recorded. 0, or none, for the
+ * accounts the page started with (`AccountUpdater`).
+ */
+export const accountsReloaded = createAction<{ chainType: string; seq?: number }>(
+  'accounts/accountsReloaded'
+)
+
+/** A balance card shows `total`, replacing what any card published before. */
+export const balanceCardTotalShown = createAction<BalanceCardTotal>(
+  'accounts/balanceCardTotalShown'
+)
+
+/** The card `owner` shows no total any more: what it published is withdrawn. */
+export const balanceCardTotalWithdrawn = createAction<{ owner: number }>(
+  'accounts/balanceCardTotalWithdrawn'
+)
+
+/** The user asked for the read `requestId` of `address` in flight: see `BalanceReadRecord.reading`. */
+export const balanceReadJoinedByUser = createAction<{ address: string; requestId: number }>(
+  'accounts/balanceReadJoinedByUser'
+)
+
+/** This page began the read `requestId` of `address`: see `BalanceReadRecord.reading`. */
+export const balanceReadStarted = createAction<{
+  address: string
+  requestId: number
+  chainType: string
+  startedAt: number
+  byUser?: boolean
+}>('accounts/balanceReadStarted')
+
+function storeBalanceReadStarted(
+  state: AccountsState,
+  payload: ReturnType<typeof balanceReadStarted>['payload']
+): void {
+  const { address, requestId, chainType, startedAt } = payload
+  const record = balanceReadRecord(state, address)
+  if (requestId <= newestSettled(record)) return
+  if (record.reading !== undefined && requestId <= record.reading.requestId) return
+  record.reading = { requestId, chainType, startedAt, byUser: payload.byUser === true }
+}
+
+/**
+ * What the read `requestId` of `address` reported before its answer: its
+ * total, or how many outputs it has read. See `BalanceReadRecord.early`.
+ */
+export const balanceReadProgress = createAction<{
+  address: string
+  requestId: number
+  chainType: string
+  totalBalance?: number
+  read?: number
+  total?: number
+}>('accounts/balanceReadProgress')
+
+function storeBalanceReadProgress(
+  state: AccountsState,
+  payload: ReturnType<typeof balanceReadProgress>['payload']
+): void {
+  const { address, requestId, chainType, totalBalance, read, total } = payload
+  const record = balanceReadRecord(state, address)
+  if (requestId <= newestSettled(record)) return
+  if (record.reading !== undefined && requestId < record.reading.requestId) return
+  if (record.early !== undefined && requestId < record.early.requestId) return
+  const same =
+    record.early !== undefined &&
+    record.early.requestId === requestId &&
+    record.early.chainType === chainType
+      ? record.early
+      : undefined
+  const early: NonNullable<BalanceReadRecord['early']> = { ...same, requestId, chainType }
+  if (isSatoshiAmount(totalBalance)) early.totalBalance = totalBalance
+  if (isSatoshiAmount(read) && isSatoshiAmount(total) && read <= total) {
+    // Within a read the count never goes back, should its outputs be listed again.
+    early.read = same?.total === total && same.read !== undefined ? Math.max(same.read, read) : read
+    early.total = total
+  }
+  record.early = early
+}
+
+/**
+ * The balance the background kept for `address` (`getKeptAddressBalance`):
+ * stored only while this page has no answer of its own for the address on
+ * that network, and over an older kept one only.
+ */
+export const setBalanceKept = createAction<{ address: string } & KeptBalanceEntry>(
+  'accounts/setBalanceKept'
+)
+
+function storeBalanceKept(
+  state: AccountsState,
+  payload: ReturnType<typeof setBalanceKept>['payload']
+): void {
+  const { address, balance, readAt } = payload
+  if (typeof address !== 'string' || address === '' || typeof readAt !== 'number') return
+  if (!isCompleteBalance(balance) || !isChainType(balance.chainType)) return
+  if (hasAccountBalanceRead(state, address, balance.chainType)) return
+  const stored = state.balanceKeptMap[address]
+  if (
+    stored !== undefined &&
+    stored.balance.chainType === balance.chainType &&
+    stored.readAt > readAt
+  ) {
+    return
+  }
+  state.balanceKeptMap[address] = { balance, readAt }
+}
+
 export interface AccountsState {
   accounts: Account[]
   current: Account
@@ -216,6 +625,39 @@ export interface AccountsState {
    */
   balanceStatusMap: {
     [key: string]: BalanceRefreshStatus
+  }
+  /**
+   * The balance card's record of this page's reads per address
+   * (`BalanceReadRecord`), beside the answers: never read by any other
+   * screen, and it changes nothing in `balanceV2Map` or `balanceStatusMap`.
+   *
+   * Ordering. An early total, a progress report, a kept answer and an
+   * answer may arrive in any order, and from reads of different ages; the
+   * request ids, which grow with every read a page begins, order them:
+   * - An answer or a failure orders the answers as `balanceStatusMap`
+   *   describes, and settles the record unless a newer read settled first:
+   *   a late, older one changes no outcome, and drops nothing newer.
+   * - An early total or a progress report of read R is kept only while R is
+   *   newer than every settled read and no older than the newest read
+   *   begun or reported, and only beside the answers: it never replaces one.
+   *   An answer of R, or of a newer read, drops it.
+   * - A read begun becomes the read in progress only if it is newer than
+   *   every read begun and settled before it.
+   * - A kept answer (`balanceKeptMap`) is never stored over an answer this
+   *   page read for the address on that network, and such an answer drops
+   *   it, so it never stands in for one.
+   */
+  balanceReadMap: {
+    [address: string]: BalanceReadRecord
+  }
+  /**
+   * The last complete answer the background kept for an address
+   * (`getKeptAddressBalance`), shown dimmed until this page has an answer of
+   * its own for that network (see `balanceReadMap` for how it is ordered).
+   * Only the balance card reads it.
+   */
+  balanceKeptMap: {
+    [address: string]: KeptBalanceEntry
   }
   historyMap: {
     [key: string]: {
@@ -247,6 +689,36 @@ export interface AccountsState {
   accountTotalsAsked: number
   /** Answers of requests up to this one, made before the latest reset, are dropped. */
   accountTotalsFloor: number
+  /**
+   * The network the page last (re)loaded its accounts for, and how many
+   * loads it has made (`accountsReloaded`), succeeded or not. The balance
+   * card, after a network switch, waits for the selected account to be the
+   * new network's: until a load for that network ends, at the latest.
+   */
+  accountsLoaded?: { chainType: string; count: number; seq?: number }
+  /**
+   * The total the balance card shows, as it last published it
+   * (`balanceCardTotalShown`), until it shows none, the balance is hidden,
+   * or the card goes: the account switcher's row of the selected account
+   * shows it (`useCurrentAccountBalanceTotal`).
+   */
+  balanceCardTotal?: BalanceCardTotal
+}
+
+/** The total a balance card shows, for one address on one network. */
+export interface BalanceCardTotal {
+  /** The card that shows it: only that card withdraws it. */
+  owner: number
+  address: string
+  chainType: string
+  /** In sats. */
+  totalBalance: number
+  /**
+   * The total is the newest read's own (the early total of the read in
+   * flight, or the total the newest settled read told), so a failed refresh
+   * does not make it out of date.
+   */
+  totalCurrent: boolean
 }
 
 const initialAccount = {
@@ -268,6 +740,8 @@ export const initialState: AccountsState = {
   loading: false,
   balanceV2Map: {},
   balanceStatusMap: {},
+  balanceReadMap: {},
+  balanceKeptMap: {},
   historyMap: {},
   addressSummary: {
     totalSatoshis: 0,
@@ -305,9 +779,21 @@ const slice: Slice<AccountsState> = createSlice({
           balance: QbitBalanceSummary
           /** Orders this result against other refreshes; see balanceStatusMap. */
           requestId?: number
+          /** When the read began, in ms since the epoch: see `BalanceReadRecord.outcome`. */
+          startedAt?: number
         }
       }
     ) {
+      settleBalanceRead(state, action.payload.address, {
+        requestId:
+          action.payload.requestId ??
+          state.balanceStatusMap[action.payload.address]?.requestId ??
+          0,
+        chainType: action.payload.balance.chainType,
+        kind: balanceReadOutcome(action.payload.balance),
+        startedAt: action.payload.startedAt,
+        balance: action.payload.balance,
+      })
       const {
         payload: {
           balance: {
@@ -380,8 +866,26 @@ const slice: Slice<AccountsState> = createSlice({
       state.balanceV2Map[address].utxoReadIncomplete = utxoReadIncomplete
       state.balanceV2Map[address].chainType = chainType
     },
-    setBalanceError(state, action: { payload: { address: string; requestId: number } }) {
+    setBalanceError(
+      state,
+      action: {
+        payload: {
+          address: string
+          requestId: number
+          /** The network the page showed as the read began. */
+          chainType?: string
+          /** When the read began, in ms since the epoch. */
+          startedAt?: number
+        }
+      }
+    ) {
       const { address, requestId } = action.payload
+      settleBalanceRead(state, address, {
+        requestId,
+        chainType: action.payload.chainType,
+        kind: 'failed',
+        startedAt: action.payload.startedAt,
+      })
       recordBalanceFailure(state, address, requestId)
     },
     setAddressSummary(state, action: { payload: any }) {
@@ -492,6 +996,14 @@ const slice: Slice<AccountsState> = createSlice({
         state.balanceStatusMap = {}
       }
 
+      if (!state.balanceReadMap) {
+        state.balanceReadMap = {}
+      }
+
+      if (!state.balanceKeptMap) {
+        state.balanceKeptMap = {}
+      }
+
       if (!state.accountTotalsMap) {
         state.accountTotalsMap = {}
       }
@@ -503,6 +1015,44 @@ const slice: Slice<AccountsState> = createSlice({
       if (typeof state.accountTotalsFloor !== 'number') {
         state.accountTotalsFloor = 0
       }
+    })
+    builder.addCase(balanceReadStarted, (state, action) => {
+      storeBalanceReadStarted(state, action.payload)
+    })
+    builder.addCase(balanceReadProgress, (state, action) => {
+      storeBalanceReadProgress(state, action.payload)
+    })
+    builder.addCase(setBalanceKept, (state, action) => {
+      storeBalanceKept(state, action.payload)
+    })
+    builder.addCase(balanceReadGivenUp, (state, action) => {
+      const { address, requestId, chainType, startedAt } = action.payload
+      settleBalanceRead(state, address, { requestId, chainType, kind: 'failed', startedAt })
+    })
+    builder.addCase(balanceReadsLocked, (state, action) => {
+      const { before } = action.payload
+      if (typeof before !== 'number') return
+      for (const record of Object.values(state.balanceReadMap)) {
+        record.staleUpTo = Math.max(record.staleUpTo ?? before, before)
+      }
+    })
+    builder.addCase(accountsReloaded, (state, action) => {
+      const { chainType } = action.payload
+      if (typeof chainType !== 'string') return
+      const seq = typeof action.payload.seq === 'number' ? action.payload.seq : 0
+      // An older load ending late: the newer one recorded stands.
+      if (seq < (state.accountsLoaded?.seq ?? 0)) return
+      state.accountsLoaded = { chainType, count: (state.accountsLoaded?.count ?? 0) + 1, seq }
+    })
+    builder.addCase(balanceCardTotalShown, (state, action) => {
+      state.balanceCardTotal = { ...action.payload }
+    })
+    builder.addCase(balanceCardTotalWithdrawn, (state, action) => {
+      if (state.balanceCardTotal?.owner === action.payload.owner) delete state.balanceCardTotal
+    })
+    builder.addCase(balanceReadJoinedByUser, (state, action) => {
+      const reading = state.balanceReadMap[action.payload.address]?.reading
+      if (reading?.requestId === action.payload.requestId) reading.byUser = true
     })
     builder.addCase(storeAccountTotals, (state, action) => {
       for (const update of action.payload) storeAccountTotal(state, update)
@@ -518,6 +1068,21 @@ const slice: Slice<AccountsState> = createSlice({
 
 export const accountActions = slice.actions
 export default slice.reducer
+
+/**
+ * Whether the balance stored for `address` is a complete answer this page
+ * read on `chainType` (`isCompleteBalance`).
+ */
+export function hasCompleteBalanceRead(
+  state: AccountsState,
+  address: string,
+  chainType: string
+): boolean {
+  return (
+    hasAccountBalanceRead(state, address, chainType) &&
+    isCompleteBalance(state.balanceV2Map[address])
+  )
+}
 
 /**
  * Whether a balance read for `address` on `chainType` has succeeded: only a

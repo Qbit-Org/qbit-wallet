@@ -479,22 +479,39 @@ export function useAccountSwitcherTotals(keyrings: WalletKeyring[]): AccountSwit
 }
 
 /**
- * The current account's total once the home screen's balance card has one
- * read on the current network (not its stand-in zeros), else null: what the
- * switcher shows on that account's row, so the two never disagree.
+ * What the switcher shows on the current account's row. While the home
+ * screen's balance card shows a total for the account on the network shown,
+ * that total, as the card published it (`balanceCardTotal`), so the two
+ * never disagree, whatever the card shows it for (a complete answer, a total
+ * read since, the early total of a read in flight, the background's kept
+ * answer). Otherwise the account's balance read on the current network (not
+ * its stand-in zeros), else null. `stale`: the latest refresh failed, unless
+ * the card's total is the newest read's own (`BalanceCardTotal.totalCurrent`).
  */
 export function useCurrentAccountBalanceTotal(): CurrentAccountBalanceTotal | null {
   const address = useAppSelector(state => state.accounts.current.address)
-  const totalBalance = useAppSelector(state => {
+  const shown = useAppSelector(state => {
+    const { accounts, settings } = state
+    const published = accounts.balanceCardTotal
+    return published !== undefined &&
+      accounts.current.address !== '' &&
+      published.address === accounts.current.address &&
+      published.chainType === settings.chainType
+      ? published
+      : undefined
+  })
+  const read = useAppSelector(state => {
     const { accounts, settings } = state
     const current = accounts.current.address
     if (!current || !hasAccountBalanceRead(accounts, current, settings.chainType)) return null
     const total = accounts.balanceV2Map[current]?.totalBalance
     return isSatoshiAmount(total) ? total : null
   })
-  const stale = useAppSelector(
+  const refreshFailed = useAppSelector(
     state => state.accounts.balanceStatusMap[state.accounts.current.address]?.error === true
   )
+  const totalBalance = shown !== undefined ? shown.totalBalance : read
+  const stale = refreshFailed && shown?.totalCurrent !== true
   return useMemo(
     () => (totalBalance === null ? null : { address, totalBalance, stale }),
     [address, totalBalance, stale]

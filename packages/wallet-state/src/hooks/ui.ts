@@ -172,13 +172,13 @@ export const useIsInExpandView = () => {
 
 export function useBalanceCardDetailExpanded() {
   const uiState = useUIState()
-  return uiState.balanceDetailExpanded
+  return uiState.balanceDetailOpen
 }
 
 export function useToggleBalanceCardDetailExpanded() {
-  const { balanceDetailExpanded } = useUIState()
+  const { balanceDetailOpen } = useUIState()
   const dispatch = useAppDispatch()
   return useCallback(() => {
-    dispatch((uiActions as any).setBalanceDetailExpanded(!balanceDetailExpanded))
-  }, [dispatch, balanceDetailExpanded])
+    dispatch((uiActions as any).setBalanceDetailOpen(!balanceDetailOpen))
+  }, [dispatch, balanceDetailOpen])
 }
