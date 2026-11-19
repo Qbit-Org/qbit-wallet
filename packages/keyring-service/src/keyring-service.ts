@@ -637,13 +637,6 @@ export class KeyringService extends EventEmitter {
     })
 
   /**
-   * Get current memory store state
-   */
-  getMemStore(): MemStoreState {
-    return this.memStore.getState()
-  }
-
-  /**
    * Full Update
    *
    * Emits the `update` event and @returns a Promise that resolves to
@@ -707,12 +700,6 @@ export class KeyringService extends EventEmitter {
       this.memStore.updateState({ preMnemonics })
       return mnemonic
     })
-  }
-
-  getKeyringByType = (type: string) => {
-    const keyring = this.keyrings.find(keyring => keyring.type === type)
-
-    return keyring
   }
 
   removePreMnemonics = () => {
@@ -3649,28 +3636,6 @@ export class KeyringService extends EventEmitter {
   }
 
   /**
-   * Unlock Keyrings
-   *
-   * Attempts to unlock the persisted encrypted storage,
-   * initializing the persisted keyrings to RAM.
-   *
-   * The vault is read under persistenceMutex, decrypted and restored into
-   * local arrays, and the live keyrings are replaced in one step.
-   * persistAllKeyrings serializes whatever `keyrings` holds, so emptying or
-   * filling the live list in place would let a vault write during the decrypt
-   * or the restore loop durably commit an empty or partial vault. A failed
-   * decrypt or restore leaves the live keyrings untouched.
-   *
-   * @param {string} password - The keyring controller password.
-   * @returns {Promise<Array<Keyring>>} The keyrings.
-   */
-  unlockKeyrings = async (password: string): Promise<any[]> => {
-    await this.persistenceMutex.lock(() => this.loadVaultKeyrings(password))
-    await this._updateMemStoreKeyrings()
-    return this.keyrings
-  }
-
-  /**
    * Decrypts the vault and restores its keyrings into local arrays, then
    * replaces the live keyrings in one step. Callers hold persistenceMutex, so
    * no keyring persist commits between the read and the swap.
@@ -3711,22 +3676,6 @@ export class KeyringService extends EventEmitter {
     // Each read costs a full key derivation and keyring restore; stop instead
     // of chasing a vault that keeps changing.
     throw new Error('Vault changed during every unlock attempt; try again')
-  }
-
-  /**
-   * Restore Keyring
-   *
-   * Attempts to initialize a new keyring from the provided serialized payload.
-   * On success, updates the memStore keyrings and returns the resulting
-   * keyring instance.
-   *
-   * @param {Object} serialized - The serialized keyring.
-   * @returns {Promise<Keyring>} The deserialized keyring.
-   */
-  restoreKeyring = async (serialized: any) => {
-    const { keyring } = await this._restoreKeyring(serialized)
-    await this._updateMemStoreKeyrings()
-    return keyring
   }
 
   /**
@@ -4015,54 +3964,6 @@ export class KeyringService extends EventEmitter {
       this.cachedDisplayedKeyringRead = read
     }
     return displayed
-  }
-
-  getAllVisibleAccountsArray = async () => {
-    const typedAccounts = await this.getAllDisplayedKeyrings()
-    const result: { pubkey: string; type: string; brandName: string }[] = []
-    typedAccounts.forEach(accountGroup => {
-      result.push(
-        ...accountGroup.accounts.map(account => ({
-          pubkey: account.pubkey,
-          brandName: account.brandName,
-          type: accountGroup.type,
-        }))
-      )
-    })
-
-    return result
-  }
-
-  getAllPubkeys = async () => {
-    const keyrings = await this.getAllDisplayedKeyrings()
-    const result: { pubkey: string; type: string; brandName: string }[] = []
-    keyrings.forEach(accountGroup => {
-      result.push(
-        ...accountGroup.accounts.map(account => ({
-          pubkey: account.pubkey,
-          brandName: account.brandName,
-          type: accountGroup.type,
-        }))
-      )
-    })
-
-    return result
-  }
-
-  hasPubkey = async (pubkey: string) => {
-    const addresses = await this.getAllPubkeys()
-    return !!addresses.find(item => item.pubkey === pubkey)
-  }
-
-  /**
-   * Clear Keyrings
-   *
-   * Deallocates all currently managed keyrings and accounts by locking the
-   * wallet. Emptying the keyrings while the password stays set would let the
-   * next vault write durably commit an empty vault. Prefer setLocked().
-   */
-  clearKeyrings = async (): Promise<void> => {
-    await this.setLocked()
   }
 
   /**

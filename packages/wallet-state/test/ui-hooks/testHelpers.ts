@@ -96,7 +96,6 @@ export function createWalletMock() {
     abandonQbitUtxoSnapshot: vi.fn().mockResolvedValue(undefined),
     getFeeSummary: vi.fn().mockResolvedValue(feeSummary),
     getLowFeeSummary: vi.fn().mockResolvedValue(feeSummary),
-    getAcceptLowFeeMode: vi.fn().mockResolvedValue(true),
     createSendAllQbitPsbt: vi.fn(),
     createSendQbitPsbt: vi.fn(),
     createSendQbitOffsetPsbt: vi.fn(),

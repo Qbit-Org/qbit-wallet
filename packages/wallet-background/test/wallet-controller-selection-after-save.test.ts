@@ -218,7 +218,6 @@ describe('a lock that lands while an addition is saved', () => {
       ]).toEqual(selection)
       expect(announced).toEqual([])
       expect(sitesTold()).toEqual([])
-      expect(preferenceService.getShowSafeNotice()).toBe(true)
 
       // The wallet was saved, once: the password unlocks it.
       await keyringService.submitPassword(PASSWORD)
@@ -416,7 +415,6 @@ describe('a read of the wallets that started before an addition', () => {
     expect(preferenceService.getCurrentKeyringIndex()).toBe(1)
     expect(preferenceService.getCurrentAccount()).toMatchObject({ key: 'keyring_1#0' })
     expect(announced).toEqual([expect.objectContaining({ key: 'keyring_1#0' })])
-    expect(preferenceService.getShowSafeNotice()).toBe(true)
   })
 })
 

@@ -127,7 +127,7 @@ describe('KeyringService vault entries of an unregistered type', () => {
       ['Simple Key Pair', 0],
       [KeyringType.QbitHdKeyring, 1],
     ])
-    expect(service.getMemStore().isUnlocked).toBe(true)
+    expect(service.memStore.getState().isUnlocked).toBe(true)
   })
 
   it('carries the entries unchanged through vault writes and later unlocks', async () => {

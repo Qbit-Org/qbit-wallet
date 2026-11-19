@@ -187,7 +187,7 @@ function durableKeyringCount(storage: MemoryStorage): number {
   return JSON.parse(storage.values.get('keyringState').vault).data.length
 }
 
-// Parks unlockKeyrings after it restored the first keyring, mid restore loop.
+// Parks an unlock after it restored the first keyring, mid restore loop.
 function holdAfterFirstRestore(service: KeyringService): Hold {
   const started = deferred()
   const release = deferred()
@@ -402,35 +402,6 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
       await expect(unlock).resolves.toMatchObject({ isUnlocked: true })
       await expect(persist.promise).resolves.toBe(true)
       expect(service.keyrings).toHaveLength(2)
-      expect(durableKeyringCount(storage)).toBe(2)
-
-      const reopened = await reopenWallet(storage)
-      expect(reopened.keyrings).toHaveLength(2)
-    }
-  )
-
-  it.each(['decrypt', 'restore'] as const)(
-    'keeps the live keyrings and queues writes while unlockKeyrings is in its %s step',
-    async step => {
-      const { service, storage, encryptor } = await createUnlockedWallet()
-      const liveKeyrings = service.keyrings
-      const liveAddressTypes = service.addressTypes
-
-      const hold = holdUnlockStep(step, service, encryptor)
-      const reload = service.unlockKeyrings('password')
-      await hold.started
-
-      expect(service.keyrings).toBe(liveKeyrings)
-      expect(service.addressTypes).toBe(liveAddressTypes)
-      const persist = track(service.persistAllKeyrings([]))
-      await drainTasks()
-      expect(persist.settled).toBe(false)
-
-      hold.release()
-      await reload
-      await expect(persist.promise).resolves.toBe(true)
-      expect(service.keyrings).toHaveLength(2)
-      expect(service.memStore.getState().keyrings).toHaveLength(2)
       expect(durableKeyringCount(storage)).toBe(2)
 
       const reopened = await reopenWallet(storage)
@@ -726,22 +697,5 @@ describe('KeyringService unlock vs concurrent vault writes', () => {
     expect(service.keyrings).toEqual([])
     expect(service.memStore.getState()).toMatchObject({ isUnlocked: false, keyrings: [] })
     expect(storage.values.get('keyringState')).toMatchObject({ booted: '', vault: null })
-  })
-
-  it('locks the wallet in clearKeyrings so a later write cannot commit an empty vault', async () => {
-    const { service, storage } = await createUnlockedWallet()
-
-    await service.clearKeyrings()
-
-    expect(service.password).toBeNull()
-    expect(service.keyrings).toEqual([])
-    expect(service.memStore.getState()).toMatchObject({ isUnlocked: false, keyrings: [] })
-    await expect(service.persistAllKeyrings([])).rejects.toThrow(
-      'keyringcontroller_password_is_not_a_string'
-    )
-    expect(durableKeyringCount(storage)).toBe(2)
-
-    await expect(service.submitPassword('password')).resolves.toMatchObject({ isUnlocked: true })
-    expect(service.keyrings).toHaveLength(2)
   })
 })
