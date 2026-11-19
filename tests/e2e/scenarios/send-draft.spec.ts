@@ -53,9 +53,9 @@ function typedText(draft: SendDraft): string[] {
   return [draft.recipient, draft.amount, draft.memo, draft.customFeeRate]
 }
 
-/** The saved UI state: the display preferences, the detail of the balance card never closed. */
+/** The saved UI state: the display preferences, the balance card's breakdown never opened. */
 function savedPreferences(isBalanceHidden: boolean) {
-  return { isBalanceHidden, balanceDetailExpanded: true }
+  return { isBalanceHidden, balanceDetailOpen: false }
 }
 
 /**

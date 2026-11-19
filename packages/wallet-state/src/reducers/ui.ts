@@ -47,7 +47,13 @@ export interface UIState {
   }
   navigationSource: NavigationSource
   isBalanceHidden: boolean
-  balanceDetailExpanded: boolean
+  /**
+   * Whether the balance card shows Available and Unavailable: closed until
+   * the user opens it, and saved as they leave it. Builds up to 1.0.10 saved
+   * an open-by-default `balanceDetailExpanded` instead, which is not read, so
+   * that every install starts closed once.
+   */
+  balanceDetailOpen: boolean
   /**
    * The account and network the send form's values were entered under: the
    * last ones the store knew, null before it knew any (`scopeSendForm`).
@@ -81,7 +87,7 @@ export const initialState: UIState = {
   },
   navigationSource: NavigationSource.NORMAL,
   isBalanceHidden: false,
-  balanceDetailExpanded: true,
+  balanceDetailOpen: false,
   sendFormScope: null,
 }
 
@@ -116,7 +122,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
 /** The part of the ui state a wallet page saves: its display preferences. */
-export type SavedUiState = Pick<UIState, 'isBalanceHidden' | 'balanceDetailExpanded'>
+export type SavedUiState = Pick<UIState, 'isBalanceHidden' | 'balanceDetailOpen'>
 
 function ownBoolean(fields: Record<string, unknown>, key: keyof SavedUiState): boolean | undefined {
   const value = Object.prototype.hasOwnProperty.call(fields, key) ? fields[key] : undefined
@@ -132,8 +138,7 @@ export function savedUiState(ui: unknown): SavedUiState {
   const fields = isPlainObject(ui) ? ui : {}
   return {
     isBalanceHidden: ownBoolean(fields, 'isBalanceHidden') ?? initialState.isBalanceHidden,
-    balanceDetailExpanded:
-      ownBoolean(fields, 'balanceDetailExpanded') ?? initialState.balanceDetailExpanded,
+    balanceDetailOpen: ownBoolean(fields, 'balanceDetailOpen') ?? initialState.balanceDetailOpen,
   }
 }
 
@@ -270,8 +275,8 @@ const slice: Slice<UIState> = createSlice({
     setBalanceHidden(state, action: { payload: boolean }) {
       state.isBalanceHidden = action.payload
     },
-    setBalanceDetailExpanded(state, action: { payload: boolean }) {
-      state.balanceDetailExpanded = action.payload
+    setBalanceDetailOpen(state, action: { payload: boolean }) {
+      state.balanceDetailOpen = action.payload
     },
   },
   extraReducers: builder => {

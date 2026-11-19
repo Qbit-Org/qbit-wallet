@@ -1135,6 +1135,23 @@ export interface QbitBalanceReadOptions extends QbitClassifyOptions {
    * which alone ask for a read fresh, nothing is kept or reused.
    */
   reuse?: QbitBalanceReuseView
+  /** Told how the read goes, for a page to show (`QbitBalanceReadObserver`). */
+  observer?: QbitBalanceReadObserver
+}
+
+/**
+ * What a balance read tells its caller as it goes. It changes nothing in the
+ * read: no request is made for it, and what it throws is ignored.
+ */
+export interface QbitBalanceReadObserver {
+  /**
+   * The statistics answered with `totalBalance`, the total the answer will
+   * carry, before any output is read. `outputs` says, whenever asked, how
+   * many of the outputs listed have been classified and how many were
+   * listed; `undefined` until the listing is read, and for a read that reuses
+   * a kept answer or reads none.
+   */
+  totalRead(totalBalance: number, outputs: () => { read: number; total: number } | undefined): void
 }
 
 /**
@@ -1365,7 +1382,8 @@ export async function getQbitSpendableBalanceV2(
       readOutputs,
       operation,
       options.fundingTxReads,
-      options.reuse
+      options.reuse,
+      options.observer
     )
     operation.throwIfCancelled()
     return summary
@@ -1382,7 +1400,8 @@ async function readQbitSpendableBalance(
   readOutputs: ((stats: string) => QbitOutputRead | undefined) | undefined,
   operation: QbitBalanceReadOperation,
   fundingTxReads: QbitFundingTxReads | undefined,
-  reuse: QbitBalanceReuseView | undefined
+  reuse: QbitBalanceReuseView | undefined,
+  observer?: QbitBalanceReadObserver
 ): Promise<QbitBalanceSummaryPayload> {
   operation.throwIfCancelled()
   const { signal } = operation
@@ -1455,6 +1474,11 @@ async function readQbitSpendableBalance(
     throw operation.timedOut ? operation.timeoutError : error
   }
   const aggregateBalance = qbitBalanceToSummary(balance)
+  try {
+    observer?.totalRead(aggregateBalance.totalBalance, () => qbitClassifiedCount(listing.progress))
+  } catch {
+    // The observer changes nothing in the read.
+  }
   // Statistics that may be newer than the listing, as a request for them
   // went out after it, the read's own later attempt or the client's, or
   // another caller's request the read joined: had a block between them spent
@@ -3095,6 +3119,19 @@ interface QbitClassifyProgress {
   readonly kept: [txid: string, vout: number][]
   facts?: QbitFundingFactsView | undefined
   listing?: readonly EsploraUtxo[]
+  /** Each listed output's class as the classification fills it in, for `qbitClassifiedCount`. */
+  classes?: readonly unknown[]
+}
+
+/** How many of the listed outputs are classified so far, out of how many; undefined before the listing. */
+function qbitClassifiedCount(
+  progress: QbitClassifyProgress
+): { read: number; total: number } | undefined {
+  const { listing, classes } = progress
+  if (listing === undefined) return undefined
+  let read = 0
+  for (const outputClass of classes ?? []) if (outputClass !== undefined) read += 1
+  return { read, total: listing.length }
 }
 
 /**
@@ -3526,6 +3563,7 @@ async function classifyQbitOutputs(
     else groups.set(txid, [{ index, vout: utxo.vout, utxo }])
   })
   const classes = new Array<QbitOutputClass | undefined>(utxos.length)
+  if (progress) progress.classes = classes
   // The coinbase maturity check waits for the tip, and for nothing else.
   const getTipHeightOnce = (): Promise<number> => tip.start()
   // The tip is at least as high as the highest block the fresh listing puts

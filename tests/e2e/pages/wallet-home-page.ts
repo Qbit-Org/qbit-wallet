@@ -95,6 +95,17 @@ export class WalletHomePage extends ExtensionPageObject {
     return exact
   }
 
+  /**
+   * Whether the balance card's breakdown (Available and Unavailable) is
+   * open: closed until the user opens it, by a click on the card. Read from
+   * the card's own state, so a card with nothing to break down (the load
+   * error) still says what it would show.
+   */
+  async balanceDetailOpen(): Promise<boolean> {
+    await expect(this.balanceCard).toBeVisible()
+    return (await this.balanceCard.getAttribute('data-detail-open')) === 'true'
+  }
+
   /** The balance card's eye, which hides or shows the balances. */
   get balanceVisibilityToggle(): Locator {
     return this.byTestId('balance-visibility-toggle')

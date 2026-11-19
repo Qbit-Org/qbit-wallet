@@ -110,6 +110,10 @@ import {
   QbitSignatureBudgetImpact,
   type QbitSigningOptions,
   type QbitSigningProgress,
+  type QbitAddressBalanceOptions,
+  type QbitBalanceReadProgress,
+  type QbitKeptAddressBalance,
+  QBIT_BALANCE_READ_PROGRESS,
   type QbitBroadcastFailure,
   type QbitConsolidationBatch,
   type QbitConsolidationBatchShape,
@@ -320,6 +324,12 @@ import {
   type QbitFundingFactsView,
 } from '../utils/qbit-funding-tx-reads'
 import { QbitBalanceReuse } from '../utils/qbit-balance-reuse'
+import {
+  QBIT_BALANCE_PROGRESS_ID,
+  QbitBalanceProgressPublisher,
+  QbitKeptBalances,
+  type QbitKeptBalancePlace,
+} from '../utils/qbit-balance-answers'
 import {
   QbitAccountTotals,
   type QbitAccountTotalsClearKind,
@@ -2699,6 +2709,7 @@ export class WalletController extends BaseController {
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
     this.qbitBalanceReuse.clear()
+    this.qbitKeptBalances.clear()
     this.forgetQbitAccountTotals()
     // A send plan stops signing before its next signature, and its drafts
     // go: told before the keyring's lock, which may wait for its mutex, and
@@ -2749,7 +2760,10 @@ export class WalletController extends BaseController {
     return data
   }
 
-  getAddressBalanceV2 = async (address: string) => {
+  getAddressBalanceV2 = async (address: string, options?: QbitAddressBalanceOptions) => {
+    // Before the first await: the page that asked, which alone is told how
+    // the read goes (`options.progressId`).
+    const uiPort = this.callingUiPort
     const chainType = this.getChainType()
     // Its total feeds the account switcher's (`qbitAccountTotals`), ranked
     // and dated by when this read began.
@@ -2787,6 +2801,10 @@ export class WalletController extends BaseController {
     // before any await, so that one made since leaves it keeping and reusing
     // nothing.
     const reuse = this.qbitBalanceReuse.begin()
+    // Its complete answer is kept for a page opened later to show at once
+    // (`qbitKeptBalances`), unless a clear comes first.
+    const kept = this.qbitKeptBalances.begin()
+    const progress = this.qbitBalanceProgress(uiPort, options, address, chainType, kept)
     let reservedUnknown = false
     const probed = this.settleQbitRecentSpends(chainType, address, this.qbitBalanceGuardWaitMs)
     const client = this.getQbitApiClient(chainType)
@@ -2804,24 +2822,33 @@ export class WalletController extends BaseController {
         ...(latest.matureFrom !== undefined ? { matureFrom: latest.matureFrom } : {}),
       }
     }
-    const data = await getQbitSpendableBalanceV2(
-      client,
-      address,
-      p2mrScriptPubKey,
-      async () => {
-        await probed
-        const reserved = await this.qbitGuardReadWithin(
-          qbitSendGuardService.getReservedOutpointKeys(chainType, address),
-          this.qbitBalanceGuardWaitMs
-        )
-        // The poll's last read decides: a reuse given up after reading them
-        // reads them again after the listing.
-        reservedUnknown = reserved === undefined
-        return reserved ?? new Set<string>()
-      },
-      readOutputs,
-      { fundingTxReads: this.qbitFundingTxReads, reuse }
-    )
+    let data: Awaited<ReturnType<typeof getQbitSpendableBalanceV2>>
+    try {
+      data = await getQbitSpendableBalanceV2(
+        client,
+        address,
+        p2mrScriptPubKey,
+        async () => {
+          await probed
+          const reserved = await this.qbitGuardReadWithin(
+            qbitSendGuardService.getReservedOutpointKeys(chainType, address),
+            this.qbitBalanceGuardWaitMs
+          )
+          // The poll's last read decides: a reuse given up after reading them
+          // reads them again after the listing.
+          reservedUnknown = reserved === undefined
+          return reserved ?? new Set<string>()
+        },
+        readOutputs,
+        {
+          fundingTxReads: this.qbitFundingTxReads,
+          reuse,
+          ...(progress ? { observer: progress.observer } : {}),
+        }
+      )
+    } finally {
+      progress?.close()
+    }
     this.qbitAccountTotals.measured(client, address, data.totalBalance, totalsSince)
     if (reservedUnknown) {
       // Shown as `--`, as past the explorer's UTXO limit: the total is
@@ -2842,7 +2869,63 @@ export class WalletController extends BaseController {
         chainType,
       }
     }
-    return { ...data, chainType }
+    const answer = { ...data, chainType }
+    this.qbitKeptBalances.keep(kept, chainType, address, answer)
+    return answer
+  }
+
+  /**
+   * The last complete balance answer kept for `address` on the active network
+   * (`qbitKeptBalances`), with when its read began, for a newly opened page
+   * to show, dimmed, while its own first read runs; `null` when none is kept,
+   * and always while the wallet reads locked. Reads nothing from the
+   * explorer.
+   */
+  getKeptAddressBalance = async (address: string): Promise<QbitKeptAddressBalance | null> => {
+    if (typeof address !== 'string' || address === '') return null
+    if (!this.isUnlocked()) return null
+    return this.qbitKeptBalances.peek(this.getChainType(), address) ?? null
+  }
+
+  /**
+   * What tells the page that asked for a balance read how it goes
+   * (`QBIT_BALANCE_READ_PROGRESS`): only that page, through the UI port the
+   * call arrived on, and only while the wallet reads unlocked, nothing was
+   * cleared since the read began (`kept`), the network is still `chainType`
+   * and `address` is still the selected account's. None without a calling
+   * port or a usable `progressId`.
+   */
+  private qbitBalanceProgress = (
+    uiPort: QbitSendClaimOwner | undefined,
+    options: QbitAddressBalanceOptions | undefined,
+    address: string,
+    chainType: ChainType,
+    kept: QbitKeptBalancePlace
+  ): QbitBalanceProgressPublisher | undefined => {
+    const progressId: unknown = options?.progressId
+    if (
+      uiPort === undefined ||
+      typeof progressId !== 'string' ||
+      !QBIT_BALANCE_PROGRESS_ID.test(progressId)
+    ) {
+      return undefined
+    }
+    return new QbitBalanceProgressPublisher({
+      progressId,
+      address,
+      chainType,
+      mayPublish: (): boolean =>
+        this.qbitKeptBalances.current(kept) &&
+        this.getChainType() === chainType &&
+        preferenceService.getCurrentAccount()?.address === address,
+      send: (params: QbitBalanceReadProgress): void => {
+        bgEventBus.emit(BUS_EVENTS.toUIPort, {
+          port: uiPort,
+          method: QBIT_BALANCE_READ_PROGRESS,
+          params,
+        })
+      },
+    })
   }
 
   /**
@@ -3349,6 +3432,7 @@ export class WalletController extends BaseController {
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
     this.qbitBalanceReuse.clear()
+    this.qbitKeptBalances.clear()
     // No website PSBT, nor any provider send, skips the check of its inputs
     // past a reset, which also ends every open provider request in the guard.
     this.forgetQbitWebsitePsbts()
@@ -3373,6 +3457,7 @@ export class WalletController extends BaseController {
         this.qbitLatestUtxoReads.clear()
         this.qbitFundingTxReads.clear()
         this.qbitBalanceReuse.clear()
+        this.qbitKeptBalances.clear()
         this.forgetQbitAccountTotals()
       }
       // The keys are gone, and a stored signed payment needs none to go out:
@@ -4099,6 +4184,7 @@ export class WalletController extends BaseController {
     this.qbitLatestUtxoReads.clear()
     this.qbitFundingTxReads.clear()
     this.qbitBalanceReuse.clear()
+    this.qbitKeptBalances.clear()
     this.forgetQbitWebsitePsbts()
     this.qbitProviderSendBytes.clear()
     this.forgetQbitAccountTotals()
@@ -7142,6 +7228,7 @@ export class WalletController extends BaseController {
       this.qbitLatestUtxoReads.clear()
       this.qbitFundingTxReads.clear()
       this.qbitBalanceReuse.clear()
+      this.qbitKeptBalances.clear()
       // The wallets that stay are read again for a switcher left open.
       this.forgetQbitAccountTotals('may-read-again')
       // Nor do their send plans go on: each ends as a cancel ends it, and
@@ -7203,6 +7290,7 @@ export class WalletController extends BaseController {
       // or not the keyring went (the keyring service can fail after it
       // saved the emptied slot).
       this.qbitBalanceReuse.clear()
+      this.qbitKeptBalances.clear()
       releaseNetworks?.()
       this.removalUnderWay = undefined
       settle()
@@ -7566,6 +7654,7 @@ export class WalletController extends BaseController {
         this.qbitLatestUtxoReads.clear()
         this.qbitFundingTxReads.clear()
         this.qbitBalanceReuse.clear()
+        this.qbitKeptBalances.clear()
         this.forgetQbitAccountTotals()
         this.announceLock()
       }
@@ -8642,6 +8731,7 @@ export class WalletController extends BaseController {
     // more use (see `qbitFundingTxReads`).
     this.qbitFundingTxReads.clear()
     this.qbitBalanceReuse.clear()
+    this.qbitKeptBalances.clear()
     this.forgetQbitAccountTotals()
 
     // Restored seeds have unscanned floors on the newly active network; either
@@ -8876,6 +8966,7 @@ export class WalletController extends BaseController {
     }
     this.qbitFundingTxReads.clear()
     this.qbitBalanceReuse.clear()
+    this.qbitKeptBalances.clear()
     this.forgetQbitAccountTotals(totals)
   }
 
@@ -9211,6 +9302,20 @@ export class WalletController extends BaseController {
    * the facts kept then.
    */
   private readonly qbitBalanceReuse = new QbitBalanceReuse({
+    usable: (): boolean => this.isUnlocked(),
+  })
+
+  /**
+   * The last complete balance answer per network and address, with when its
+   * read began (`getAddressBalanceV2`), for a newly opened page to show at
+   * once, dimmed, while its own first read runs (`getKeptAddressBalance`).
+   * In memory only, a few addresses per network. Nothing is kept or served
+   * while the wallet reads locked, and it is forgotten wherever
+   * `qbitBalanceReuse` is, and as a transaction goes out and again as it
+   * settles (`submitQbitTx`); a read that began before then keeps nothing.
+   * See `QbitKeptBalances`.
+   */
+  private readonly qbitKeptBalances = new QbitKeptBalances({
     usable: (): boolean => this.isUnlocked(),
   })
 
@@ -11282,10 +11387,15 @@ export class WalletController extends BaseController {
     ...submission: Parameters<QbitWalletApiClient['broadcastTx']>
   ): Promise<string> {
     const settled = this.qbitAccountTotals.submission(client)
+    // A kept balance answer may predate the transaction: a page opened after
+    // it reads its own, and no read begun before it settled keeps its
+    // answer. The reads in flight go on telling their pages how they go.
+    const keptSettled = this.qbitKeptBalances.submission()
     try {
       return await client.broadcastTx(...submission)
     } finally {
       settled()
+      keptSettled()
     }
   }
 

@@ -68,7 +68,7 @@ const SAVED_UI_KEY = 'redux_localstorage_simple_ui';
 // Everything a window has in localStorage while a wallet exists.
 function seedLocalStorage() {
   // The saved ui state: the display preferences alone; no send form is saved.
-  localStorage.setItem(SAVED_UI_KEY, JSON.stringify({ isBalanceHidden: true, balanceDetailExpanded: false }));
+  localStorage.setItem(SAVED_UI_KEY, JSON.stringify({ isBalanceHidden: true, balanceDetailOpen: true }));
   localStorage.setItem('ecosystem_warning_acknowledged', 'true');
   localStorage.setItem('mine_tab_seen', 'true');
   localStorage.setItem('version_detail', JSON.stringify({ version: '1.0.9' }));
@@ -483,7 +483,7 @@ describe('checking, by its id, the wallet a page shows after a reconnection', ()
 
     await vi.waitFor(() => expect(reloadOnBoot).toHaveBeenCalledTimes(1));
     expect(clearMemory).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem(SAVED_UI_KEY)).toBe('{"isBalanceHidden":true,"balanceDetailExpanded":false}');
+    expect(localStorage.getItem(SAVED_UI_KEY)).toBe('{"isBalanceHidden":true,"balanceDetailOpen":true}');
     expect(localStorage.getItem('written_by_the_new_wallet')).toBe('1');
     expect(localStorage.getItem('ecosystem_warning_acknowledged')).toBe('true');
     expect(localStorage.getItem('mine_tab_seen')).toBe('true');

@@ -89,7 +89,7 @@ function expectNoDraftStored(): void {
 /** The ui state saved by 1.0.7 with a send form left filled in (the release fixture's shape). */
 const savedByEarlierBuild = (preferences: {
   isBalanceHidden: boolean
-  balanceDetailExpanded: boolean
+  balanceDetailOpen: boolean
 }) =>
   JSON.stringify({
     uiTxCreateScreen: {
@@ -135,7 +135,7 @@ describe('what a wallet page saves', () => {
         'resetAmountInput',
         'resetFeeRateBar',
         'resetTxCreateScreen',
-        'setBalanceDetailExpanded',
+        'setBalanceDetailOpen',
         'setBalanceHidden',
         'setNavigationSource',
         'updateAddressInput',
@@ -153,13 +153,13 @@ describe('what a wallet page saves', () => {
 
     fillSendForm(store)
     store.dispatch(uiActions.setBalanceHidden(true))
-    store.dispatch(uiActions.setBalanceDetailExpanded(false))
+    store.dispatch(uiActions.setBalanceDetailOpen(true))
     // Before the save and after it, nothing of the form is stored.
     expectNoDraftStored()
     vi.advanceTimersByTime(SAVE_DELAY_MS)
 
     expect(localStorage.getItem(SAVED_UI_KEY)).toBe(
-      '{"isBalanceHidden":true,"balanceDetailExpanded":false}'
+      '{"isBalanceHidden":true,"balanceDetailOpen":true}'
     )
     expect(Object.keys(localStorage)).toEqual([SAVED_UI_KEY])
     expectNoDraftStored()
@@ -176,13 +176,13 @@ describe('what a wallet page saves', () => {
     }
     store.dispatch(uiActions.setBalanceHidden(false))
     vi.advanceTimersByTime(SAVE_DELAY_MS)
-    expect(savedValue()).toEqual({ isBalanceHidden: false, balanceDetailExpanded: false })
+    expect(savedValue()).toEqual({ isBalanceHidden: false, balanceDetailOpen: true })
     expectNoDraftStored()
 
     fillSendForm(store)
     store.dispatch(uiActions.reset())
     vi.advanceTimersByTime(SAVE_DELAY_MS)
-    expect(savedValue()).toEqual({ isBalanceHidden: false, balanceDetailExpanded: true })
+    expect(savedValue()).toEqual({ isBalanceHidden: false, balanceDetailOpen: false })
     expectNoDraftStored()
   })
 
@@ -219,28 +219,28 @@ describe('what a wallet page saves', () => {
 
     vi.advanceTimersByTime(1)
 
-    expect(savedValue()).toEqual({ isBalanceHidden: true, balanceDetailExpanded: true })
+    expect(savedValue()).toEqual({ isBalanceHidden: true, balanceDetailOpen: false })
   })
 })
 
 describe('preferences across page loads', () => {
   it.each([
-    { isBalanceHidden: true, balanceDetailExpanded: true },
-    { isBalanceHidden: true, balanceDetailExpanded: false },
-    { isBalanceHidden: false, balanceDetailExpanded: true },
-    { isBalanceHidden: false, balanceDetailExpanded: false },
+    { isBalanceHidden: true, balanceDetailOpen: false },
+    { isBalanceHidden: true, balanceDetailOpen: true },
+    { isBalanceHidden: false, balanceDetailOpen: false },
+    { isBalanceHidden: false, balanceDetailOpen: true },
   ])('keeps %o set in one page for the next', preferences => {
     // Saved the other way round first, so that every value is a change.
     localStorage.setItem(
       SAVED_UI_KEY,
       JSON.stringify({
         isBalanceHidden: !preferences.isBalanceHidden,
-        balanceDetailExpanded: !preferences.balanceDetailExpanded,
+        balanceDetailOpen: !preferences.balanceDetailOpen,
       })
     )
     const first = createAppStore()
     first.dispatch(uiActions.setBalanceHidden(preferences.isBalanceHidden))
-    first.dispatch(uiActions.setBalanceDetailExpanded(preferences.balanceDetailExpanded))
+    first.dispatch(uiActions.setBalanceDetailOpen(preferences.balanceDetailOpen))
     vi.advanceTimersByTime(SAVE_DELAY_MS)
 
     const second = createAppStore()
@@ -250,19 +250,19 @@ describe('preferences across page loads', () => {
   })
 
   it('loads preferences an earlier build saved alone', () => {
-    localStorage.setItem(SAVED_UI_KEY, '{"isBalanceHidden":true,"balanceDetailExpanded":false}')
+    localStorage.setItem(SAVED_UI_KEY, '{"isBalanceHidden":true,"balanceDetailOpen":true}')
 
     const store = createAppStore()
 
     expect(store.getState().ui).toEqual({
       ...initialState,
       isBalanceHidden: true,
-      balanceDetailExpanded: false,
+      balanceDetailOpen: true,
     })
   })
 
   it('leaves preferences saved alone as they are', () => {
-    const stored = '{"isBalanceHidden":true,"balanceDetailExpanded":false}'
+    const stored = '{"isBalanceHidden":true,"balanceDetailOpen":true}'
     localStorage.setItem(SAVED_UI_KEY, stored)
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
     const removeItem = vi.spyOn(Storage.prototype, 'removeItem')
@@ -297,10 +297,39 @@ describe('preferences across page loads', () => {
   })
 })
 
+describe('the balance breakdown (O5)', () => {
+  it('starts closed on a fresh profile', () => {
+    expect(createAppStore().getState().ui.balanceDetailOpen).toBe(false)
+    vi.advanceTimersByTime(SAVE_DELAY_MS)
+    expect(localStorage.getItem(SAVED_UI_KEY)).toBeNull()
+  })
+
+  it('starts closed once on a profile saved by 1.0.10 with it open, then as the user leaves it', () => {
+    localStorage.setItem(SAVED_UI_KEY, '{"isBalanceHidden":false,"balanceDetailExpanded":true}')
+    const first = createAppStore()
+    expect(first.getState().ui.balanceDetailOpen).toBe(false)
+    // Rewritten at once with this build's field.
+    expect(localStorage.getItem(SAVED_UI_KEY)).toBe(
+      '{"isBalanceHidden":false,"balanceDetailOpen":false}'
+    )
+
+    // Opened, and the page reloaded: open.
+    first.dispatch(uiActions.setBalanceDetailOpen(true))
+    vi.advanceTimersByTime(SAVE_DELAY_MS)
+    const second = createAppStore()
+    expect(second.getState().ui.balanceDetailOpen).toBe(true)
+
+    // Closed again, and reloaded: closed.
+    second.dispatch(uiActions.setBalanceDetailOpen(false))
+    vi.advanceTimersByTime(SAVE_DELAY_MS)
+    expect(createAppStore().getState().ui.balanceDetailOpen).toBe(false)
+  })
+})
+
 describe('a ui state saved by an earlier build, with a send form in it', () => {
   it.each([
-    { isBalanceHidden: true, balanceDetailExpanded: false },
-    { isBalanceHidden: false, balanceDetailExpanded: true },
+    { isBalanceHidden: true, balanceDetailOpen: true },
+    { isBalanceHidden: false, balanceDetailOpen: false },
   ])('loads its preferences %o and none of the form', preferences => {
     localStorage.setItem(SAVED_UI_KEY, savedByEarlierBuild(preferences))
 
@@ -312,7 +341,7 @@ describe('a ui state saved by an earlier build, with a send form in it', () => {
   it('is removed when it cannot be replaced, and its preferences still load', () => {
     localStorage.setItem(
       SAVED_UI_KEY,
-      savedByEarlierBuild({ isBalanceHidden: true, balanceDetailExpanded: false })
+      savedByEarlierBuild({ isBalanceHidden: true, balanceDetailOpen: true })
     )
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
@@ -325,14 +354,14 @@ describe('a ui state saved by an earlier build, with a send form in it', () => {
     expect(store.getState().ui).toEqual({
       ...initialState,
       isBalanceHidden: true,
-      balanceDetailExpanded: false,
+      balanceDetailOpen: true,
     })
   })
 
   it('still makes the store when it can be neither replaced nor removed', () => {
     localStorage.setItem(
       SAVED_UI_KEY,
-      savedByEarlierBuild({ isBalanceHidden: true, balanceDetailExpanded: false })
+      savedByEarlierBuild({ isBalanceHidden: true, balanceDetailOpen: true })
     )
     for (const method of ['setItem', 'removeItem'] as const) {
       vi.spyOn(Storage.prototype, method).mockImplementation(() => {
@@ -345,14 +374,14 @@ describe('a ui state saved by an earlier build, with a send form in it', () => {
     expect(store.getState().ui).toEqual({
       ...initialState,
       isBalanceHidden: true,
-      balanceDetailExpanded: false,
+      balanceDetailOpen: true,
     })
   })
 
   it('is replaced with the preferences alone before any timer runs', () => {
     localStorage.setItem(
       SAVED_UI_KEY,
-      savedByEarlierBuild({ isBalanceHidden: true, balanceDetailExpanded: false })
+      savedByEarlierBuild({ isBalanceHidden: true, balanceDetailOpen: true })
     )
 
     createAppStore()
@@ -360,14 +389,14 @@ describe('a ui state saved by an earlier build, with a send form in it', () => {
     // The timers are fake and none has been run: this is what a popup closed
     // now leaves behind.
     expect(localStorage.getItem(SAVED_UI_KEY)).toBe(
-      '{"isBalanceHidden":true,"balanceDetailExpanded":false}'
+      '{"isBalanceHidden":true,"balanceDetailOpen":true}'
     )
     expectNoDraftStored()
   })
 })
 
 describe('a saved value that is not a ui state', () => {
-  const INITIAL_PREFERENCES = '{"isBalanceHidden":false,"balanceDetailExpanded":true}'
+  const INITIAL_PREFERENCES = '{"isBalanceHidden":false,"balanceDetailOpen":false}'
 
   it.each([
     ['text that is no JSON', '{"isBalanceHidden":true,'],
@@ -388,22 +417,22 @@ describe('a saved value that is not a ui state', () => {
 
   it.each([
     [
-      { isBalanceHidden: 'true', balanceDetailExpanded: false },
-      { isBalanceHidden: false, balanceDetailExpanded: false },
+      { isBalanceHidden: 'true', balanceDetailOpen: true },
+      { isBalanceHidden: false, balanceDetailOpen: true },
     ],
     [
-      { isBalanceHidden: true, balanceDetailExpanded: 0 },
-      { isBalanceHidden: true, balanceDetailExpanded: true },
+      { isBalanceHidden: true, balanceDetailOpen: 0 },
+      { isBalanceHidden: true, balanceDetailOpen: false },
     ],
     [
-      { isBalanceHidden: null, balanceDetailExpanded: {} },
-      { isBalanceHidden: false, balanceDetailExpanded: true },
+      { isBalanceHidden: null, balanceDetailOpen: {} },
+      { isBalanceHidden: false, balanceDetailOpen: false },
     ],
     [
-      { isBalanceHidden: 1, balanceDetailExpanded: [false] },
-      { isBalanceHidden: false, balanceDetailExpanded: true },
+      { isBalanceHidden: 1, balanceDetailOpen: [false] },
+      { isBalanceHidden: false, balanceDetailOpen: false },
     ],
-    [{ balanceDetailExpanded: false }, { isBalanceHidden: false, balanceDetailExpanded: false }],
+    [{ balanceDetailOpen: true }, { isBalanceHidden: false, balanceDetailOpen: true }],
   ])('gives a preference of another type its initial value: %o', (saved, loaded) => {
     localStorage.setItem(SAVED_UI_KEY, JSON.stringify(saved))
 
@@ -416,7 +445,7 @@ describe('a saved value that is not a ui state', () => {
   it('drops fields that are not preferences', () => {
     localStorage.setItem(
       SAVED_UI_KEY,
-      JSON.stringify({ isBalanceHidden: true, balanceDetailExpanded: false, theme: 'dark', x: 1 })
+      JSON.stringify({ isBalanceHidden: true, balanceDetailOpen: true, theme: 'dark', x: 1 })
     )
 
     const store = createAppStore()
@@ -424,10 +453,10 @@ describe('a saved value that is not a ui state', () => {
     expect(store.getState().ui).toEqual({
       ...initialState,
       isBalanceHidden: true,
-      balanceDetailExpanded: false,
+      balanceDetailOpen: true,
     })
     expect(localStorage.getItem(SAVED_UI_KEY)).toBe(
-      '{"isBalanceHidden":true,"balanceDetailExpanded":false}'
+      '{"isBalanceHidden":true,"balanceDetailOpen":true}'
     )
   })
 
@@ -436,23 +465,23 @@ describe('a saved value that is not a ui state', () => {
     localStorage.setItem(
       SAVED_UI_KEY,
       '{"__proto__":{"isBalanceHidden":true,"polluted":true},' +
-        '"constructor":{"prototype":{"polluted":true}},"balanceDetailExpanded":false}'
+        '"constructor":{"prototype":{"polluted":true}},"balanceDetailOpen":true}'
     )
 
     const store = createAppStore()
 
     const { ui } = store.getState()
-    expect(ui).toEqual({ ...initialState, balanceDetailExpanded: false })
+    expect(ui).toEqual({ ...initialState, balanceDetailOpen: true })
     expect(Object.prototype.hasOwnProperty.call(ui, '__proto__')).toBe(false)
     expect(Object.getPrototypeOf(ui)).toBe(Object.prototype)
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
     expect(localStorage.getItem(SAVED_UI_KEY)).toBe(
-      '{"isBalanceHidden":false,"balanceDetailExpanded":false}'
+      '{"isBalanceHidden":false,"balanceDetailOpen":true}'
     )
   })
 
   it('reads a preference only from the saved value itself, not from what it inherits', () => {
-    localStorage.setItem(SAVED_UI_KEY, '{"balanceDetailExpanded":false}')
+    localStorage.setItem(SAVED_UI_KEY, '{"balanceDetailOpen":true}')
     // Not enumerable, so that it reaches only lookups, as a polluted
     // prototype's member would, and no loop over keys.
     Object.defineProperty(Object.prototype, 'isBalanceHidden', {
@@ -465,7 +494,7 @@ describe('a saved value that is not a ui state', () => {
 
       expect(store.getState().ui.isBalanceHidden).toBe(false)
       expect(localStorage.getItem(SAVED_UI_KEY)).toBe(
-        '{"isBalanceHidden":false,"balanceDetailExpanded":false}'
+        '{"isBalanceHidden":false,"balanceDetailOpen":true}'
       )
     } finally {
       delete (Object.prototype as Record<string, unknown>).isBalanceHidden
@@ -482,19 +511,19 @@ describe('two pages open at once', () => {
 
     popup.dispatch(uiActions.setBalanceHidden(true))
     vi.advanceTimersByTime(SAVE_DELAY_MS)
-    expect(savedValue()).toEqual({ isBalanceHidden: true, balanceDetailExpanded: true })
+    expect(savedValue()).toEqual({ isBalanceHidden: true, balanceDetailOpen: false })
 
     // The tab, which still shows balances, works on: its actions save nothing.
     fillSendForm(tab)
     tab.dispatch(accountActions.setCurrent(account('tq1zaccount')))
     tab.dispatch(globalActions.update({ isUnlocked: true }))
     vi.advanceTimersByTime(SAVE_DELAY_MS * 5)
-    expect(savedValue()).toEqual({ isBalanceHidden: true, balanceDetailExpanded: true })
+    expect(savedValue()).toEqual({ isBalanceHidden: true, balanceDetailOpen: false })
     expect(createAppStore().getState().ui.isBalanceHidden).toBe(true)
 
     // A preference changed in the tab saves the tab's two, its older one too.
-    tab.dispatch(uiActions.setBalanceDetailExpanded(false))
+    tab.dispatch(uiActions.setBalanceDetailOpen(true))
     vi.advanceTimersByTime(SAVE_DELAY_MS)
-    expect(savedValue()).toEqual({ isBalanceHidden: false, balanceDetailExpanded: false })
+    expect(savedValue()).toEqual({ isBalanceHidden: false, balanceDetailOpen: true })
   })
 })

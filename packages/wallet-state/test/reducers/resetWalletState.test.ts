@@ -158,7 +158,7 @@ describe('resetWalletState', () => {
     vi.advanceTimersByTime(1_100)
     expect(JSON.parse(localStorage.getItem(SAVED_UI_KEY)!)).toEqual({
       isBalanceHidden: true,
-      balanceDetailExpanded: true,
+      balanceDetailOpen: false,
     })
     expect(store.getState().ui.sendFormScope).toEqual({
       address: account.address,
@@ -170,7 +170,7 @@ describe('resetWalletState', () => {
 
     expect(JSON.parse(localStorage.getItem(SAVED_UI_KEY)!)).toEqual({
       isBalanceHidden: uiInitial.isBalanceHidden,
-      balanceDetailExpanded: uiInitial.balanceDetailExpanded,
+      balanceDetailOpen: uiInitial.balanceDetailOpen,
     })
     expect(localStorage.getItem(SAVED_UI_KEY)).not.toContain(DRAFT_ADDRESS)
     expect(store.getState().ui.sendFormScope).toBeNull()

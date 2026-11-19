@@ -119,6 +119,7 @@ export const UI_CONTROLLER_METHODS = [
   'getEnableRBF',
   'getFeeSummary',
   'getIsFirstOpen',
+  'getKeptAddressBalance',
   'getKeyrings',
   'getLocale',
   'getLockOnComputerLock',

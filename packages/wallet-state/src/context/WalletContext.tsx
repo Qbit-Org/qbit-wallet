@@ -7,6 +7,7 @@ import {
   BiometricUnlockRecord,
   BiometricUnlockStatus,
   QbitAccountTotal,
+  QbitAddressBalanceOptions,
   QbitBalance,
   QbitBalanceSummary,
   QbitBroadcastResult,
@@ -22,6 +23,7 @@ import {
   LocalPsbtBatchReview,
   LocalPsbtSummary,
   QbitFeeBumpEligibility,
+  QbitKeptAddressBalance,
   QbitRecoveryDeferredSource,
   QbitRecoveryState,
   QbitRemoveKeyringOptions,
@@ -158,7 +160,21 @@ export interface WalletController {
   getIsFirstOpen(): Promise<boolean>
   updateIsFirstOpen(): Promise<void>
 
-  getAddressBalanceV2(address: string): Promise<QbitBalanceSummary>
+  /**
+   * The address's balance. `options.progressId` asks for the read's progress
+   * (QBIT_BALANCE_READ_PROGRESS events to this page): its total once the
+   * statistics answer, then how many outputs are read.
+   */
+  getAddressBalanceV2(
+    address: string,
+    options?: QbitAddressBalanceOptions
+  ): Promise<QbitBalanceSummary>
+  /**
+   * The last complete balance the background read for the address on the
+   * active network, kept in memory, or `null`; always `null` while locked.
+   * Reads nothing from the explorer.
+   */
+  getKeptAddressBalance(address: string): Promise<QbitKeptAddressBalance | null>
   /**
    * What the background has kept of each address's total, one answer per
    * address in the order given. Reads nothing from the explorer. An address
