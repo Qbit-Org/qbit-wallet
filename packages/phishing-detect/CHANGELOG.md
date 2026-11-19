@@ -1,5 +1,24 @@
 # @qbit/phishing-detect
 
+## 0.6.0
+
+### Minor Changes
+
+- 5b98b06: `PhishingService.clearWhitelist()` forgets every navigation bypass, the session's and the stored ones, and stores an empty list. Unlike the list's other writes, it rejects when that write fails or when the service has not been initialised, so a wallet reset can tell that the bypasses are gone.
+
+### Patch Changes
+
+- Updated dependencies [9231628]
+- Updated dependencies [26065a5]
+- Updated dependencies [041fbaf]
+- Updated dependencies [5df0946]
+- Updated dependencies [96fd314]
+- Updated dependencies [5b98b06]
+- Updated dependencies [44e0ee3]
+- Updated dependencies [d33eca0]
+- Updated dependencies [4ff73ed]
+  - @qbit/wallet-shared@4.0.0
+
 ## 0.5.0
 
 ### Minor Changes

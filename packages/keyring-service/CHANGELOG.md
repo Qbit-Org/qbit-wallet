@@ -1,5 +1,27 @@
 # @qbit/keyring-service
 
+## 2.1.0
+
+### Minor Changes
+
+- 44e0ee3: `KeyringService.hasPersistedVault()` answers whether storage holds a vault, which is what the next start reads, where `hasVault()` answers from memory. A reset stores the erased state before it changes memory, so a reset that fails between the two leaves memory holding a vault that storage no longer has; the send plans ask storage after such a reset (#206).
+
+### Patch Changes
+
+- 96fd314: Sign a provider PSBT input under the sighash type its `PSBT_IN_SIGHASH_TYPE` names, when that type is 0x81 or 0x83. The approval shows each input signed on its own and what the signature locks in (every output for 0x81, one output for 0x83), and no longer counts as the wallet's change or receipts the outputs a 0x83 signature leaves open, nor, under 0x81, any output a 0x83 signature of the same request does not lock in: another approval's input can pay for it. A partial type is signed only for an input that spends the account's own output. A recovery migration still signs only under the default type, every other type is still refused, and an input that names none still signs with the default. An address row flagged `warning` no longer counts as a recipient the wallet named.
+- Updated dependencies [9231628]
+- Updated dependencies [26065a5]
+- Updated dependencies [041fbaf]
+- Updated dependencies [5df0946]
+- Updated dependencies [96fd314]
+- Updated dependencies [5b98b06]
+- Updated dependencies [44e0ee3]
+- Updated dependencies [d33eca0]
+- Updated dependencies [4ff73ed]
+  - @qbit/wallet-shared@4.0.0
+  - @qbit/wallet-core@1.1.8
+  - @qbit/wallet-storage@0.3.3
+
 ## 2.0.0
 
 ### Major Changes

@@ -1,5 +1,11 @@
 # @qbit/permission-service
 
+## 2.0.2
+
+### Patch Changes
+
+- @qbit/wallet-storage@0.3.3
+
 ## 2.0.1
 
 ### Patch Changes
