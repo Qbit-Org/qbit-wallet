@@ -742,7 +742,21 @@ The frozen installs preserved the hoisted paths of all 3,005 registry package
 instances when comparing the release base with the SDK update. Two Chrome builds
 of the dependency-only change produced the same SHA-256,
 `546a0a0615fcc5bce84bdf438d34a7a785f4bae6acc59a47cdcfcc5c7b18ba0d`.
-The regenerated dependency inventory identifies `7a9cdf6` as its audited commit.
+
+On November 19, `@qbit/wallet-core` dropped `@bitcoinerlab/secp256k1`, the
+pure-JS curve its ECC manager chose only on a React Native platform, which the
+extension never runs on. Relocking the base lockfile removes only that
+package's importer entry, package entry and snapshot. The advisory records are
+unchanged, and the live dependency policy passed with 0 critical or high
+records. Of the 71 MV3 ZIP entries, only `background.js` differs from the base
+`c278cd85`. It loses four modules: `@bitcoinerlab/secp256k1`, the CommonJS build
+of `@noble/secp256k1`, the empty `crypto` stub that build required, and a Babel
+helper only it used. The `@noble/hashes` CommonJS `hmac` and `sha256` modules
+drop exports that only `@bitcoinerlab/secp256k1` read, and the wallet-core
+module loses its React Native branch. Another 31 modules differ only in minified
+local names. No webpack module id moved, so no bundled package changed its
+hoisted path. The store ZIP shrinks from 1,831,587 to 1,823,598 bytes.
+The regenerated dependency inventory identifies `b986c1b` as its audited commit.
 
 ## Limitations and ongoing ownership
 
