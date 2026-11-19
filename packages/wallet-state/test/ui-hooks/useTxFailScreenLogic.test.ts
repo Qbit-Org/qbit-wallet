@@ -418,7 +418,7 @@ describe('useTxFailScreenLogic', () => {
     const wallet = walletWithBroadcast()
     let settle: (value: unknown) => void = () => undefined
     wallet.broadcastQbitTx.mockReturnValue(new Promise(resolve => (settle = resolve)))
-    const { result, unmount, navigation, store } = renderFailScreen(
+    const { result, unmount, navigation } = renderFailScreen(
       { result: notSentFailure, retained },
       wallet
     )
@@ -433,14 +433,15 @@ describe('useTxFailScreenLogic', () => {
     // one) unmounted the screen mid-retry: the user is on another screen by
     // the time the node accepts the retained bytes.
     unmount()
+    expect(wallet.getAddressBalanceV2).not.toHaveBeenCalled()
     await act(async () => {
       settle({ success: true, chain: ChainType.QBIT_REGTEST, txid: TXID, via: 'broadcast' })
       await retry
     })
 
-    // The acceptance settled in the background: the txid is recorded and the
-    // claim the controller consumed is not released again.
-    expect(store.getState().transactions.qbitTx.txid).toBe(TXID)
+    // The acceptance settled in the background: the balance is read again and
+    // the claim the controller consumed is not released again.
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalled()
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
     // But the success screen must not replace whatever route the user is on.
     expect(navigation.replace).not.toHaveBeenCalled()
@@ -451,7 +452,7 @@ describe('useTxFailScreenLogic', () => {
     const wallet = walletWithBroadcast()
     let settle: (value: unknown) => void = () => undefined
     wallet.checkQbitBroadcastStatus.mockReturnValue(new Promise(resolve => (settle = resolve)))
-    const { result, unmount, navigation, store } = renderFailScreen(
+    const { result, unmount, navigation } = renderFailScreen(
       { result: unknownFailure, retained },
       wallet
     )
@@ -463,12 +464,13 @@ describe('useTxFailScreenLogic', () => {
     await waitFor(() => expect(result.current.busy).toBe('check'))
 
     unmount()
+    expect(wallet.getAddressBalanceV2).not.toHaveBeenCalled()
     await act(async () => {
       settle({ found: true, txid: TXID, state: 'pending' })
       await check
     })
 
-    expect(store.getState().transactions.qbitTx.txid).toBe(TXID)
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalled()
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
     expect(navigation.replace).not.toHaveBeenCalled()
     expect(navigation.navigate).not.toHaveBeenCalled()
@@ -772,10 +774,7 @@ describe('useTxFailScreenLogic', () => {
       txid: TXID,
       via: 'broadcast',
     })
-    const { result, navigation, store } = renderFailScreen(
-      { result: unknownFailure, retained },
-      wallet
-    )
+    const { result, navigation } = renderFailScreen({ result: unknownFailure, retained }, wallet)
 
     await act(async () => {
       const retry = result.current.onClickRetry()
@@ -798,7 +797,6 @@ describe('useTxFailScreenLogic', () => {
     expect(navigation.replace).toHaveBeenCalledWith('TxSuccessScreen', { txid: TXID })
     expect(navigation.navigate).not.toHaveBeenCalled()
     expect(navigation.goBack).not.toHaveBeenCalled()
-    expect(store.getState().transactions.qbitTx.txid).toBe(TXID)
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(1)
     expect(result.current.busy).toBeNull()
   })
@@ -894,10 +892,7 @@ describe('useTxFailScreenLogic', () => {
       txid: TXID,
       state: 'pending',
     })
-    const { result, navigation, store } = renderFailScreen(
-      { result: unknownFailure, retained },
-      wallet
-    )
+    const { result, navigation } = renderFailScreen({ result: unknownFailure, retained }, wallet)
 
     await act(async () => {
       await result.current.onClickCheckStatus()
@@ -916,7 +911,6 @@ describe('useTxFailScreenLogic', () => {
     expect(navigation.replace).toHaveBeenCalledWith('TxSuccessScreen', { txid: TXID })
     expect(navigation.navigate).not.toHaveBeenCalled()
     expect(navigation.goBack).not.toHaveBeenCalled()
-    expect(store.getState().transactions.qbitTx.txid).toBe(TXID)
     expect(wallet.getAddressBalanceV2).toHaveBeenCalledTimes(1)
   })
 

@@ -1,63 +1,19 @@
 import { createSlice, PayloadAction, SliceCaseReducers } from '@reduxjs/toolkit'
 
-import { resetWalletState, updateVersion } from '../actions/global'
-import { TabOption } from '../types'
+import { resetWalletState } from '../actions/global'
 
 export interface GlobalState {
-  tab: TabOption
   isUnlocked: boolean
   isReady: boolean
   isBooted: boolean
-  screenState?: {
-    type: string
-    options: any
-  }
-  isRefresh: boolean
-  backRefresh: boolean
-  wallRefresh: boolean
-  wallTabRefresh: boolean
-  unlockRefres: boolean
-  unlockRead: boolean
-  layerState: boolean
-  isUnlockTimeRefres: boolean
-  infiniteListScrollOffset: number
-  infiniteListScrollDirection: 'up' | 'down'
-  infiniteListScrollActiveTime: number
-  isScrollViewTop: number
-  isScrollViewBot: number
-  isBiometricsSupported: boolean
-  hasBiometricsKey: boolean
-  wallTabFocusRefresh: 0
-  goBackRefresh: 0
   switchChainModalVisible: boolean
-  isLockedOverlayVisible: boolean
 }
 
 export const initialState: GlobalState = {
-  tab: 'home',
   isUnlocked: false,
   isReady: false,
   isBooted: false,
-  screenState: undefined,
-  isRefresh: false,
-  backRefresh: false,
-  wallRefresh: false,
-  wallTabRefresh: false,
-  unlockRefres: false,
-  unlockRead: false,
-  layerState: false,
-  isUnlockTimeRefres: false,
-  infiniteListScrollOffset: 0,
-  infiniteListScrollDirection: 'down',
-  infiniteListScrollActiveTime: 0,
-  isScrollViewTop: 0,
-  isScrollViewBot: 0,
-  isBiometricsSupported: false,
-  hasBiometricsKey: false,
-  wallTabFocusRefresh: 0,
-  goBackRefresh: 0,
   switchChainModalVisible: false,
-  isLockedOverlayVisible: false,
 }
 
 const reducers: SliceCaseReducers<GlobalState> = {
@@ -65,33 +21,10 @@ const reducers: SliceCaseReducers<GlobalState> = {
   update: (
     state,
     action: PayloadAction<{
-      tab?: TabOption
       isUnlocked?: boolean
       isReady?: boolean
       isBooted?: boolean
-      screenState?: {
-        type: string
-        options: any
-      }
-      isRefresh?: boolean
-      backRefresh?: boolean
-      wallRefresh?: boolean
-      wallTabRefresh?: boolean
-      unlockRefres?: boolean
-      layerState?: boolean
-      unlockRead?: boolean
-      isUnlockTimeRefres?: boolean
-      infiniteListScrollOffset?: number
-      infiniteListScrollDirection?: 'up' | 'down'
-      infiniteListScrollActiveTime?: number
-      isScrollViewTop?: number
-      isScrollViewBot?: number
-      isBiometricsSupported?: boolean
-      hasBiometricsKey?: boolean
-      wallTabFocusRefresh?: number
-      goBackRefresh?: number
       switchChainModalVisible?: boolean
-      lockedOverlayVisible?: boolean
     }>
   ) => {
     const { payload } = action
@@ -105,9 +38,6 @@ const slice = createSlice({
   initialState,
   reducers,
   extraReducers: builder => {
-    builder.addCase(updateVersion, state => {
-      // todo
-    })
     // No wallet and no password are left: not booted, not unlocked. The app
     // stays mounted (isReady) while the page goes to the first-run screen.
     builder.addCase(resetWalletState, state => ({ ...initialState, isReady: state.isReady }))

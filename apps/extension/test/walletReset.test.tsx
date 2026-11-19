@@ -100,11 +100,16 @@ function windowOnTheUnlockScreen() {
   store.dispatch(accountActions.setAccounts([account]));
   store.dispatch(keyringsActions.setKeyrings([keyring]));
   store.dispatch(keyringsActions.setCurrent(keyring));
-  store.dispatch(transactionsActions.setSpendUnavailableUtxos([{ txid: 'aa', vout: 0 }]));
+  store.dispatch(
+    transactionsActions.setUtxos({
+      address: account.address,
+      chain: store.getState().settings.chainType,
+      utxos: [{ txid: 'aa', vout: 0, satoshis: 1_000 } as never]
+    })
+  );
   store.dispatch(
     uiActions.updateTxCreateScreen({ toInfo: { address: DRAFT_ADDRESS }, inputAmount: '1.5', memo: 'rent' })
   );
-  store.dispatch(uiActions.updateAddressInput({ address: DRAFT_ADDRESS }));
   store.dispatch(uiActions.setBalanceHidden(true));
   store.dispatch(
     settingsActions.updateSettings({ locale: 'ja', themeMode: 'dark', autoLockTimeId: 9, developerMode: true })
@@ -456,7 +461,6 @@ describe('a window whose wallet was replaced while its connection was down', () 
     // Nothing of its send form is left in its memory, nor saved; the display
     // preferences the new wallet's windows saved stay theirs.
     expect(store.getState().ui.uiTxCreateScreen.toInfo.address).toBe('');
-    expect(store.getState().ui.addressInput.address).toBe('');
     expect(store.getState().ui.sendFormScope).toBeNull();
     noDraftSaved();
     expect(page.storageAtReopen[0]?.[SAVED_UI_KEY]).toBe('{"isBalanceHidden":false,"balanceDetailOpen":true}');
