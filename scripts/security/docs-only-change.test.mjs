@@ -719,7 +719,7 @@ test('the version files and the version-keyed sources are tracked, and each vers
   // such a version is not x.y.z, and a change to or from it runs in full.
   for (const path of VERSION_FILES) {
     const { version } = JSON.parse(readFileSync(join(repoRoot, path), 'utf8'))
-    assert.match(version, /^[0-9]+\.[0-9]+\.[0-9]+(?:-beta\b.*)?$/, path)
+    assert.match(version, /^[0-9]+\.[0-9]+\.[0-9]+(?:-beta.*)?$/, path)
   }
 })
 
@@ -976,15 +976,29 @@ test('a version bump that changes anything else, or that a source names, runs in
         },
       },
     ],
-    // The update prompt compares by order, so a bump can cross the bundled
-    // configuration's version without naming it: any version there stops it.
-    ...['1.0.11', '1.0.10', '1.0.12', '2.0.0'].map(version => [
-      `a bundled configuration that names version ${version}`,
+    // The update prompt compares by order, and reads '2.0' and '2' as versions
+    // too, so a bump can cross the bundled configuration's version without
+    // naming it: only one `version`, left empty, lets a bump count.
+    ...[
+      "{ version: '1.0.11' }",
+      "{ version: '1.0.10' }",
+      "{ version: '1.0.12' }",
+      "{ version: '2.0' }",
+      "{ version: '2' }",
+      '{ version: NEXT_RELEASE }',
+      '{ version: "" }',
+      "{ version: '', other: { version: '2.0.0' } }",
+      "{ version: '2.0.0', other: { version: '' } }",
+      "{ version: '' + NEXT_RELEASE }",
+      "{ statusMessage: '' }",
+      '',
+    ].map(config => [
+      `the bundled configuration ${config}`,
       bump('1.0.13'),
-      /local-wallet-config\.ts names a version, which the running version is compared with/,
+      /local-wallet-config\.ts does not leave its one version empty, and the running version is compared with it/,
       {
         files: {
-          [WALLET_CONFIG_FILE]: `const LOCAL_WALLET_CONFIG = Object.freeze({ version: '${version}' })\n`,
+          [WALLET_CONFIG_FILE]: `const LOCAL_WALLET_CONFIG = Object.freeze(${config})\n`,
         },
       },
     ]),
@@ -1047,7 +1061,10 @@ test('the version verdict needs what was read of both files and of every version
     { path: PACKAGE_FILE, before: packageJson('1.0.10'), after: packageJson('1.0.11') },
     { path: MANIFEST_FILE, before: manifestJson('1.0.10'), after: manifestJson('1.0.11') },
   ]
-  const versionKeyed = KEYED_FILES.map(path => ({ path, text: '' }))
+  const versionKeyed = [
+    { path: NOTICES_FILE, text: '' },
+    { path: WALLET_CONFIG_FILE, text: "version: ''," },
+  ]
   const verdict = changes => classify({ entries, numstat, ...changes }, { versionBump: true })
   assert.equal(verdict({ versionFiles, versionKeyed }).docsOnly, true)
   for (const [changes, reason] of [
@@ -1076,7 +1093,7 @@ test('the version verdict needs what was read of both files and of every version
     ],
     [
       { versionFiles, versionKeyed: [versionKeyed[0], { ...versionKeyed[1], text: 'v0.0.1' }] },
-      /local-wallet-config\.ts names a version/,
+      /local-wallet-config\.ts does not leave its one version empty/,
     ],
     [
       { versionFiles, versionKeyed: [{ ...versionKeyed[0], text: 'v1.0.11' }, versionKeyed[1]] },

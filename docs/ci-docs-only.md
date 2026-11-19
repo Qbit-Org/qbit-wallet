@@ -220,16 +220,16 @@ when all of these hold:
    accepts in a manifest, with no leading zero. A package version with a
    `-beta` suffix is not of that form, so a change to or from one runs in
    full.
-5. Neither version-keyed source below, read from the merge under test, stops
-   it: the notices do not hold that version anywhere in their text, and the
-   wallet configuration holds no version at all.
+5. Neither version-keyed source below, read from the merge under test, holds
+   that version anywhere in its text, and the wallet configuration sets
+   `version` once, to the empty string.
 
 The summary of `Tree pass marker` then says "as a version bump" and gives the
 version. The gates' summaries in this workflow say "only documentation that no
 skipped step reads, or only that and the extension version". The label
 `ci:full-run` runs everything, as for a docs-only change.
 
-**What reads the version.** At `3248dc97` on 2026-11-19:
+**What reads the version.** At `2821d9ee` on 2026-11-19:
 
 | Reader                                                   | What it does with the version                                                                                                                                               |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -251,8 +251,9 @@ version, both in `packages/wallet-background/src/config/`:
   part of a longer one, runs in full.
 - `local-wallet-config.ts` holds the `version` that the update prompt compares
   with the running one, by order. A version bump can cross that version
-  without naming it, so while the file holds anything of the form `1.2.3`,
-  in a comment too, every version bump runs in full.
+  without naming it, so a version bump counts only while the file leaves it
+  empty, which turns the prompt off: its text must hold `version:` once,
+  followed by `''`. Anything else there runs every version bump in full.
 
 **Why only G3.** The lanes of `Typecheck, test, and build` build and package
 the extension under its version, and check the built manifest's version
@@ -342,8 +343,8 @@ so it does not force a full run. The label also turns off markers (see
   also covers version bumps: alone and with documentation, with the setting
   on, off and malformed, each way a version file can change in more than its
   version, versions that differ, are not `x.y.z`, have a part above 65535 or
-  do not go up, a notice that names the version, a configuration that names
-  any, and a version-keyed source that is missing. `pnpm test:security-tooling` runs it, and the
+  do not go up, a notice that names the version, a configuration whose
+  version is not empty, and a version-keyed source that is missing. `pnpm test:security-tooling` runs it, and the
   `Dependency policy` job runs that on every event.
 - `scripts/security/tree-pass-marker.test.mjs` pins the wiring: the step and
   output in `Tree pass marker`, the `DOCS_ONLY` input and the summary of every

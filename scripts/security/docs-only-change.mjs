@@ -60,15 +60,17 @@ export const VERSION_FILES = [
 ]
 // The sources that can make a release act on its own version. The bundled
 // "what's new" notices are keyed by the version that shows them, so a version
-// bump to a version that file names runs in full. The update prompt compares
+// bump to a version that either file names runs in full. The update prompt compares
 // the running version with the bundled wallet configuration's `version` by
-// order, so a bump can cross it without naming it: any version in that file
-// (`anyVersion`) runs every version bump in full.
+// order, so a bump can cross it without naming it: unless that file leaves
+// its one `version` empty (`emptyVersion`), which turns the prompt off, every
+// version bump runs in full.
 export const VERSION_KEYED_SOURCES = [
-  { path: 'packages/wallet-background/src/config/local-version-notices.ts', anyVersion: false },
-  { path: 'packages/wallet-background/src/config/local-wallet-config.ts', anyVersion: true },
+  { path: 'packages/wallet-background/src/config/local-version-notices.ts', emptyVersion: false },
+  { path: 'packages/wallet-background/src/config/local-wallet-config.ts', emptyVersion: true },
 ]
-const ANY_VERSION = /[0-9]+\.[0-9]+\.[0-9]+/
+const VERSION_SETTING = /\bversion\s*:/g
+const EMPTY_VERSION_SETTING = /\bversion\s*:\s*''\s*[,}]/
 // x.y.z with no leading zero, each part a number Chrome accepts in a manifest
 // version: 0 to 65535.
 const VERSION = /^(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})\.(0|[1-9][0-9]{0,4})$/
@@ -194,6 +196,11 @@ function isHigher(parts, than) {
   return index !== -1 && parts[index] > than[index]
 }
 
+// Whether a source sets `version` once, to the empty string.
+function leavesVersionEmpty(text) {
+  return (text.match(VERSION_SETTING) ?? []).length === 1 && EMPTY_VERSION_SETTING.test(text)
+}
+
 function changedLines(before, after) {
   const old = before.split('\n')
   const now = after.split('\n')
@@ -235,7 +242,7 @@ function classifyVersionBump({ changed, versionFiles, versionKeyed, docs }) {
     }
     const from = versionParts(before.version)
     const to = versionParts(after.version)
-    if (!to) return refuse(`${path} sets a version that is not x.y.z`)
+    if (!to) return refuse(`${path} sets a version that is not x.y.z with parts up to 65535`)
     if (!from || !isHigher(to, from)) {
       return refuse(`${path} does not raise its version from a lower x.y.z one`)
     }
@@ -245,13 +252,15 @@ function classifyVersionBump({ changed, versionFiles, versionKeyed, docs }) {
   if (versions.some(other => other !== version)) {
     return refuse(`${VERSION_FILES.join(' and ')} set different versions`)
   }
-  for (const { path, anyVersion } of VERSION_KEYED_SOURCES) {
+  for (const { path, emptyVersion } of VERSION_KEYED_SOURCES) {
     const source = versionKeyed.find(entry => entry?.path === path)
     if (typeof source?.text !== 'string') return refuse(`${path} could not be read`)
-    if (anyVersion && ANY_VERSION.test(source.text)) {
-      return refuse(`${path} names a version, which the running version is compared with`)
+    if (emptyVersion && !leavesVersionEmpty(source.text)) {
+      return refuse(
+        `${path} does not leave its one version empty, and the running version is compared with it`
+      )
     }
-    if (!anyVersion && source.text.includes(version)) {
+    if (source.text.includes(version)) {
       return refuse(`${path} names version ${version}, which that release may act on`)
     }
   }
