@@ -1030,9 +1030,6 @@ importers:
 
   packages/wallet-core:
     dependencies:
-      '@bitcoinerlab/secp256k1':
-        specifier: ^1.0.5
-        version: 1.0.5
       '@noble/hashes':
         specifier: ^1.1.5
         version: 1.8.0
@@ -2121,9 +2118,6 @@ packages:
   '@bcoe/v8-coverage@1.0.2':
     resolution: {integrity: sha512-6zABk/ECA/QYSCQ1NGiVwwbQerUCZ+TQbp64Q3AgmfNvurHH0j8TtXa1qbShXA6qqkpAj4V5W8pP6mLe1mcMqA==}
     engines: {node: '>=18'}
-
-  '@bitcoinerlab/secp256k1@1.0.5':
-    resolution: {integrity: sha512-8gT+ukTCFN2rTxn4hD9Jq3k+UJwcprgYjfK/SQUSLgznXoIgsBnlPuARMkyyuEjycQK9VvnPiejKdszVTflh+w==}
 
   '@bufbuild/protobuf@2.2.0':
     resolution: {integrity: sha512-+imAQkHf7U/Rwvu0wk1XWgsP3WnpCWmK7B48f0XqSNzgk64+grljTKC7pnO/xBiEMUziF7vKRfbBnOQhg126qQ==}
@@ -12300,11 +12294,6 @@ snapshots:
   '@bcoe/v8-coverage@0.2.3': {}
 
   '@bcoe/v8-coverage@1.0.2': {}
-
-  '@bitcoinerlab/secp256k1@1.0.5':
-    dependencies:
-      '@noble/hashes': 1.8.0
-      '@noble/secp256k1': 1.7.2
 
   '@bufbuild/protobuf@2.2.0': {}
 
