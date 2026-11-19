@@ -135,7 +135,6 @@ export function createNavigationMock(routeState: any = {}): NavigationContextTyp
     navToLock: vi.fn(),
     navToWelcome: vi.fn(),
     getRouteState: vi.fn(() => routeState) as any,
-    navToUtxoTools: vi.fn(),
     navToUrl: vi.fn(),
     navToExplorerTx: vi.fn(),
     navToExplorerAddress: vi.fn(),

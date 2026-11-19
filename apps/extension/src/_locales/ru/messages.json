@@ -707,9 +707,6 @@
   "mnemonics_24_words": {
     "message": "24 слова"
   },
-  "more": {
-    "message": "Ещё"
-  },
   "msg_already_signed": {
     "message": "Это сообщение уже подписано"
   },

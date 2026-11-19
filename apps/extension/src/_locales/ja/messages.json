@@ -707,9 +707,6 @@
   "mnemonics_24_words": {
     "message": "24 語"
   },
-  "more": {
-    "message": "もっと"
-  },
   "msg_already_signed": {
     "message": "このメッセージは既に署名されています"
   },

@@ -707,9 +707,6 @@
   "mnemonics_24_words": {
     "message": "24 words"
   },
-  "more": {
-    "message": "More"
-  },
   "msg_already_signed": {
     "message": "This message is already signed"
   },

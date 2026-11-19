@@ -177,7 +177,6 @@ export interface NavigationContextType {
 
   getRouteState<T extends RouteTypes>(): RouteParamList[T]
 
-  navToUtxoTools: () => void
   navToUrl: (url: string, externalBrowser?: boolean) => void
 
   navToExplorerTx: (txid: string) => void
@@ -203,8 +202,6 @@ const initContext = {
     // todo
     return undefined as T
   },
-
-  navToUtxoTools: () => {},
 
   navToUrl: (url: string, externalBrowser?: boolean) => {},
   navToExplorerTx: (txid: string) => {},
