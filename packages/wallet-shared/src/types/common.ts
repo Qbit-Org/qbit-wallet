@@ -40,7 +40,6 @@ export interface WalletConfig {
   version: string
   statusMessage: string
   chainTip: string
-  disableUtxoTools: boolean
 }
 
 export interface VersionDetail {
