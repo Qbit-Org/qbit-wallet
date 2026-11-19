@@ -15,6 +15,7 @@ import {
   SettingsPage,
   shortAddress,
   switcherAmount,
+  switcherExactAmount,
   WalletHomePage,
   type WalletTag,
 } from '../pages'
@@ -647,9 +648,19 @@ async function forgetKeptTotals(extension: ExtensionSession, page: Page): Promis
   return home
 }
 
-async function expectTotals(sheet: AccountSwitcherSheet, expected: Record<string, string>) {
+/**
+ * The sheet shows `expected`, and gives each total in `exact` (keyed the
+ * same way) that exact amount on hover: a total shown to five decimals, such
+ * as `<0.00001`, is then also checked to the satoshi.
+ */
+async function expectTotals(
+  sheet: AccountSwitcherSheet,
+  expected: Record<string, string>,
+  exact: Record<string, string> = {}
+) {
   await expect.poll(() => sheet.totalTexts()).toEqual(expected)
   await expect(sheet.pendingTotals).toHaveCount(0)
+  await expect.poll(() => sheet.totalExactAmounts()).toMatchObject(exact)
 }
 
 test('switch account balances: on an empty chain every row and every wallet total shows 0', async ({
@@ -704,6 +715,11 @@ test('switch account balances: reopened within a minute, the sheet reads no stat
     },
     { [created.key]: shown(175_000_000), [restored.key]: shown(1) }
   )
+  // `<0.00001` would read the same for 2 to 999 sats: the hover text says 1.
+  const exact = expectedTotals(
+    { [restoredFirst]: switcherExactAmount(1, REGTEST_UNIT) },
+    { [restored.key]: switcherExactAmount(1, REGTEST_UNIT) }
+  )
 
   // The first opening reads the statistics of each account once.
   const beforeFirst = statisticsReads(explorer, others)
@@ -711,7 +727,7 @@ test('switch account balances: reopened within a minute, the sheet reads no stat
   // the time since their answers arrived.
   const openedAt = Date.now()
   let sheet = await home.openAccountSwitcher()
-  await expectTotals(sheet, expected)
+  await expectTotals(sheet, expected, exact)
   expect(statisticsReads(explorer, others)).toEqual(beforeFirst.map(count => count + 1))
   await sheet.close()
 
@@ -722,11 +738,11 @@ test('switch account balances: reopened within a minute, the sheet reads no stat
   const releases = others.map(address => explorer.holdStatistics(address))
   try {
     sheet = await home.openAccountSwitcher()
-    await expectTotals(sheet, expected)
+    await expectTotals(sheet, expected, exact)
     await sheet.close()
     const reopened = await reopenWallet(extension, home.page)
     sheet = await reopened.openAccountSwitcher()
-    await expectTotals(sheet, expected)
+    await expectTotals(sheet, expected, exact)
     expect(Date.now() - openedAt).toBeLessThan(60_000)
     expect(statisticsReads(explorer, others)).toEqual(beforeFirst.map(count => count + 1))
     await sheet.close()
@@ -780,7 +796,8 @@ test('switch account balances: at the popup width a long name and a large amount
   const smallAccount = created.accounts[0]!.address
   // The restored wallet carries the "recovered" tag. With the other wallet
   // current, the explorer's report is all the switcher reads of its account:
-  // the largest amount a total can show, 20,999,999.99999999 coins.
+  // the largest supply a total can hold, 20,999,999.99999999 coins, which it
+  // shows as 20,999,999.99999.
   await setUpHome.switchAccount(smallAccount)
   const largeSats = 2_099_999_999_999_999
   explorer.reportFunds(largeAccount, largeSats)
@@ -888,12 +905,13 @@ test('switch account balances: reads that fail after an earlier total show it di
       { [created.key]: shown(150_000_000), [restored.key]: shown(0) }
     )
   )
+  // The row's name says the exact amount, which the row shows to five decimals.
   const label = (stale: boolean) =>
     message(
       stale
         ? 'account_switcher_account_balance_stale_label'
         : 'account_switcher_account_balance_label',
-      ['Account 1', 'Wallet 1', shortAddress(other), shown(150_000_000)]
+      ['Account 1', 'Wallet 1', shortAddress(other), switcherExactAmount(150_000_000, REGTEST_UNIT)]
     )
   await expect(sheet.accountRow(other)).toHaveAccessibleName(label(false))
   await sheet.close()

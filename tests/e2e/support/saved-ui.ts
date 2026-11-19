@@ -8,7 +8,7 @@ export const SAVED_UI_KEY = 'redux_localstorage_simple_ui'
 /** The saved UI state: the display preferences, and whatever else a build saved with them. */
 export interface SavedUi {
   isBalanceHidden?: unknown
-  balanceDetailExpanded?: unknown
+  balanceDetailOpen?: unknown
   [field: string]: unknown
 }
 

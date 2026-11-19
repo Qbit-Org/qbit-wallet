@@ -147,7 +147,7 @@ describe('a window learning of a reset', () => {
     vi.advanceTimersByTime(1_100);
     expect(JSON.parse(localStorage.getItem(SAVED_UI_KEY) ?? 'null')).toEqual({
       isBalanceHidden: true,
-      balanceDetailExpanded: true
+      balanceDetailOpen: false
     });
     noDraftSaved();
     expect(store.getState().ui.sendFormScope).toMatchObject({ address: account.address });
@@ -171,7 +171,7 @@ describe('a window learning of a reset', () => {
     vi.advanceTimersByTime(2_000);
     expect(JSON.parse(localStorage.getItem(SAVED_UI_KEY) ?? 'null')).toEqual({
       isBalanceHidden: false,
-      balanceDetailExpanded: true
+      balanceDetailOpen: false
     });
     noDraftSaved();
 
@@ -428,7 +428,7 @@ describe('a window whose wallet was replaced while its connection was down', () 
     const store = windowOnTheUnlockScreen();
     recordShownWalletId('wallet-erased');
     // The display preferences the windows of the new wallet saved.
-    localStorage.setItem(SAVED_UI_KEY, '{"isBalanceHidden":false,"balanceDetailExpanded":false}');
+    localStorage.setItem(SAVED_UI_KEY, '{"isBalanceHidden":false,"balanceDetailOpen":true}');
     localStorage.setItem('written_by_the_new_wallet', '1');
     // The background keeps starting past the wait for it.
     const page = windowWithItsChecks(store, async () => false);
@@ -459,7 +459,7 @@ describe('a window whose wallet was replaced while its connection was down', () 
     expect(store.getState().ui.addressInput.address).toBe('');
     expect(store.getState().ui.sendFormScope).toBeNull();
     noDraftSaved();
-    expect(page.storageAtReopen[0]?.[SAVED_UI_KEY]).toBe('{"isBalanceHidden":false,"balanceDetailExpanded":false}');
+    expect(page.storageAtReopen[0]?.[SAVED_UI_KEY]).toBe('{"isBalanceHidden":false,"balanceDetailOpen":true}');
     expect(createAppStore().getState().ui.uiTxCreateScreen.toInfo.address).toBe('');
     expect(localStorage.getItem('written_by_the_new_wallet')).toBe('1');
     expect(localStorage.getItem('mine_tab_seen')).toBe('true');

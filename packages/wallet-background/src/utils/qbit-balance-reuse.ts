@@ -33,11 +33,17 @@ export const QBIT_BALANCE_REUSE_MAX_AGE_MS = 5 * 60_000
  * broken tip costs one late poll in `QBIT_BALANCE_REUSE_MAX_AGE_MS` at most.
  * A poll whose tip answers within it still reuses.
  *
- * A poll with an answer to reuse is later than one without by at most this
- * and a round trip of the statistics, and by the time its read of the send
- * guard's reservations takes when the answer stops being reusable during
- * that read (its age runs out, a clear, another read replaces it, a kept
- * fact changes or goes): the listing is asked for only then. In the controller
+ * A poll with an answer to reuse that reads the listing after all is later
+ * than one without by at most this and the time its listing takes (a round
+ * trip, or its ride-out when the explorer answers it with a server error),
+ * asked for only once the statistics have answered: a poll without asks for
+ * its listing with the statistics, but it too classifies only once they
+ * have answered, so their round trip or ride-out (no attempt begins more
+ * than `QBIT_BALANCE_READ_RIDE_OUT_MS`, 3 s, after the first) delays both
+ * alike. It is later also by the time its read of the send guard's
+ * reservations takes when the answer stops being reusable during that read
+ * (its age runs out, a clear, another read replaces it, a kept fact changes
+ * or goes): the listing is asked for only then. In the controller
  * that read waits at most `qbitBalanceGuardWaitMs` (1 s) for the recent
  * spenders to probe, `qbitRecentSpendProbeWaitMs` (2 s) for the probes,
  * both begun with the read, and `qbitBalanceGuardWaitMs` for the guard: 4 s.

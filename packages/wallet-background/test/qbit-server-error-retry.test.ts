@@ -218,6 +218,15 @@ const incomplete = (count: number, failed: boolean) => ({
   ...(failed ? { utxoReadFailed: true } : {}),
 })
 
+/** A balance read's complete answer: every one of `count` payments available. */
+const complete = (count: number) => ({
+  availableBalance: count * OUTPUT_VALUE,
+  unavailableBalance: 0,
+  totalBalance: count * OUTPUT_VALUE,
+  immatureBalance: 0,
+  pendingBalance: 0,
+})
+
 describe('a lookup the explorer answers with a server error, in the read that rides them out (#209)', () => {
   afterEach(() => {
     vi.useRealTimers()
@@ -562,7 +571,7 @@ describe('a lookup the explorer answers with a server error, in the read that ri
 })
 
 describe('the output listing, when the explorer answers it with a server error (#209)', () => {
-  it('asks for it again after a 502 in the read that rides them out, and not for the balance', async () => {
+  it('asks for it again after a 502 in the read that rides them out, and in the balance read', async () => {
     const explorer = accountExplorer(200)
     let failNext = true
     const { client } = countedClient(
@@ -578,9 +587,10 @@ describe('the output listing, when the explorer answers it with a server error (
     ).resolves.toHaveLength(200)
     expect(requestsOf(explorer, listing)).toBe(2)
 
+    // The balance read rides it out too, on its own schedule (`QBIT_BALANCE_RIDE_OUT`).
     failNext = true
-    await expect(balanceOf(client)).resolves.toEqual(incomplete(200, true))
-    expect(requestsOf(explorer, listing)).toBe(3)
+    await expect(balanceOf(client)).resolves.toEqual(complete(200))
+    expect(requestsOf(explorer, listing)).toBe(4)
   })
 
   it.each([
@@ -677,7 +687,7 @@ describe("the classification's tip, when the explorer answers it with a server e
     return { explorer, client, height }
   }
 
-  it('reads the tip again after two 502s in the read that rides them out, and judges the reward by it; the balance fails at once', async () => {
+  it('reads the tip again after two 502s in the read that rides them out, and judges the reward by it; so does the balance, on its own schedule', async () => {
     vi.useFakeTimers()
     const outputs = rewardedAccount(nth => (nth <= 2 ? 502 : undefined))
     const fundingTxReads = new QbitFundingTxReads()
@@ -697,19 +707,19 @@ describe("the classification's tip, when the explorer answers it with a server e
     expect(read.value?.utxos).toHaveLength(20)
     expect(requestsOf(outputs.explorer, TIP)).toBe(3)
 
-    // The balance asks for it once, as 1.0.9 did: the client hands the 502
-    // back, and the reward's maturity cannot be judged.
+    // The balance reads it again too, 500 ms and then 1,500 ms on
+    // (`QBIT_BALANCE_RIDE_OUT`), and judges the reward immature by it.
     const balance = rewardedAccount(nth => (nth <= 2 ? 502 : undefined))
     const answer = track(balanceOf(balance.client))
-    await vi.advanceTimersByTimeAsync(0)
-    const total = 20 * OUTPUT_VALUE + REWARD_VALUE
+    await untilSettled(answer)
     expect(answer.value).toEqual({
-      ...incomplete(20, true),
-      unavailableBalance: total,
-      totalBalance: total,
+      ...complete(20),
+      unavailableBalance: REWARD_VALUE,
+      totalBalance: 20 * OUTPUT_VALUE + REWARD_VALUE,
+      immatureBalance: REWARD_VALUE,
     })
-    expect(answer.at).toBe(0)
-    expect(requestsOf(balance.explorer, TIP)).toBe(1)
+    expect(answer.at).toBe(2_000)
+    expect(requestsOf(balance.explorer, TIP)).toBe(3)
     expect(vi.getTimerCount()).toBe(0)
   })
 
@@ -731,18 +741,19 @@ describe("the classification's tip, when the explorer answers it with a server e
     expect([limiter.inFlight, limiter.queued]).toEqual([0, 0])
     expect(vi.getTimerCount()).toBe(0)
 
-    // The balance, which does not ride them out, answers the total with the
-    // split unknown at once.
+    // The balance, which rides them out for 2 s, answers the total with the
+    // split unknown once its own three attempts have failed.
     const balance = rewardedAccount(() => 502)
     const answer = track(balanceOf(balance.client))
-    await vi.advanceTimersByTimeAsync(0)
+    await untilSettled(answer)
     const total = 20 * OUTPUT_VALUE + REWARD_VALUE
     expect(answer.value).toEqual({
       ...incomplete(20, true),
       unavailableBalance: total,
       totalBalance: total,
     })
-    expect(requestsOf(balance.explorer, TIP)).toBe(1)
+    expect(answer.at).toBe(2_000)
+    expect(requestsOf(balance.explorer, TIP)).toBe(3)
 
     // Without a reward nothing waits for the tip: the read ends in the
     // tip's first pause, and that ends with it.
@@ -781,7 +792,7 @@ describe("the classification's tip, when the explorer answers it with a server e
   })
 })
 
-describe("a read that does not ride out server errors, as every read but the send screen's (#209)", () => {
+describe("a read that does not ride out server errors as the send screen's does (#209)", () => {
   afterEach(() => {
     vi.useRealTimers()
   })
@@ -867,7 +878,7 @@ describe("a read that does not ride out server errors, as every read but the sen
     }
   )
 
-  it('gives the balance with one lookup answering 502 its incomplete, failed answer as soon as 1.0.9, well within its deadline', async () => {
+  it('gives the balance with one lookup answering 502 throughout its incomplete, failed answer after its own short ride-out, well within its deadline', async () => {
     vi.useFakeTimers()
     const explorer = accountExplorer(300)
     const { client } = countedClient(
@@ -878,10 +889,12 @@ describe("a read that does not ride out server errors, as every read but the sen
     await untilSettled(read)
 
     expect(read.value).toEqual(incomplete(300, true))
-    // The client's three attempts, 300 ms and 600 ms apart, and no more.
-    expect(requestsOf(explorer, txPath(victim))).toBe(3)
-    expect(read.at).toBe(900)
-    expect(read.at).toBeLessThan(QBIT_BALANCE_READ_DEADLINE_MS / 20)
+    // Two attempts (`QBIT_BALANCE_RIDE_OUT`), 500 ms apart, each the
+    // client's three, 300 ms and 600 ms apart: a third would begin past the
+    // 3 s ride-out.
+    expect(requestsOf(explorer, txPath(victim))).toBe(6)
+    expect(read.at).toBe(900 + 500 + 900)
+    expect(read.at).toBeLessThan(QBIT_BALANCE_READ_DEADLINE_MS / 8)
     expect(vi.getTimerCount()).toBe(0)
   })
 })

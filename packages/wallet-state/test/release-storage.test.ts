@@ -9,6 +9,7 @@ import {
   SAVED_UI_KEY,
   readReleaseStorage,
   releaseSavedUi,
+  savedDetailField,
   savedWholeUi,
 } from '../../../tests/fixtures/release-storage/release-storage'
 
@@ -82,6 +83,26 @@ afterEach(() => {
 })
 
 describe('what each release saved of its ui state', () => {
+  it('names the field each release saves the breakdown under, and accepts a release from 1.0.11 with it', () => {
+    expect(['1.0.5', '1.0.9', '1.0.10'].map(savedDetailField)).toEqual([
+      'balanceDetailExpanded',
+      'balanceDetailExpanded',
+      'balanceDetailExpanded',
+    ])
+    expect(['1.0.11', '1.1.0'].map(savedDetailField)).toEqual([
+      'balanceDetailOpen',
+      'balanceDetailOpen',
+    ])
+    const left = {
+      ...preferencesOnly('1.0.11'),
+      items: { [SAVED_UI_KEY]: '{"isBalanceHidden":true,"balanceDetailOpen":false}' },
+    }
+    expect(releaseSavedUi(left.release, left.items, left.contactAddress).preferences).toEqual({
+      isBalanceHidden: true,
+      balanceDetailOpen: false,
+    })
+  })
+
   it('is the whole ui state for every release before 1.0.9, and the two preferences from 1.0.9', () => {
     // 1.0.5, 1.0.6 and 1.0.7 are captured: each must hold its send form.
     expect(['1.0.5', '1.0.6', '1.0.7', '1.0.8'].map(savedWholeUi)).toEqual([true, true, true, true])
@@ -136,8 +157,7 @@ describe('what each release saved of its ui state', () => {
       {
         ...preferencesOnly('1.1.0'),
         items: {
-          [SAVED_UI_KEY]:
-            '{"isBalanceHidden":true,"balanceDetailExpanded":true,"navigationSource":1}',
+          [SAVED_UI_KEY]: '{"isBalanceHidden":true,"balanceDetailOpen":true,"navigationSource":1}',
         },
       },
       'not the two display preferences alone',
@@ -164,6 +184,14 @@ describe('what each release saved of its ui state', () => {
       'no JSON object',
       { ...preferencesOnly('1.0.7'), items: { [SAVED_UI_KEY]: '[true,true]' } },
       'is not a JSON object',
+    ],
+    [
+      'a release from 1.0.11 that saved the breakdown under its earlier name',
+      {
+        ...preferencesOnly('1.0.11'),
+        items: { [SAVED_UI_KEY]: '{"isBalanceHidden":true,"balanceDetailExpanded":false}' },
+      },
+      'does not hold the two preferences',
     ],
   ])('refuses %s', (_, left, error) => {
     expect(() => releaseSavedUi(left.release, left.items, left.contactAddress)).toThrow(error)
@@ -198,13 +226,15 @@ describe.each(LEFT_BY)('the ui state saved by %s', (_, leftByRelease) => {
     const { preferences } = releaseSavedUi(left.release, left.items, left.contactAddress)
     const { ui } = loadStore(left).getState()
 
-    expect(ui).toEqual({ ...initialState, ...preferences })
+    // The capture hid the balances: that carries over. The breakdown starts
+    // closed, whatever the release saved (`balanceDetailOpen`).
+    expect(ui).toEqual({ ...initialState, isBalanceHidden: preferences.isBalanceHidden })
     expect(ui.uiTxCreateScreen).toEqual(initialState.uiTxCreateScreen)
-    // The capture hid the balances: that carries over.
     expect(ui.isBalanceHidden).toBe(true)
+    expect(ui.balanceDetailOpen).toBe(false)
   })
 
-  it('is replaced on disk with the two preferences alone up to 1.0.8, and left as it is from 1.0.9, as the store is made', () => {
+  it("is replaced on disk with this build's two preferences alone, the breakdown closed, as the store is made", () => {
     const left = leftByRelease()
     const saved = releaseSavedUi(left.release, left.items, left.contactAddress)
     for (const [key, value] of Object.entries(left.items)) localStorage.setItem(key, value)
@@ -213,11 +243,14 @@ describe.each(LEFT_BY)('the ui state saved by %s', (_, leftByRelease) => {
 
     createAppStore()
 
-    // No timer has run.
-    expect(localStorage.getItem(SAVED_UI_KEY)).toBe(JSON.stringify(saved.preferences))
-    expect(setItem.mock.calls).toEqual(
-      savedWholeUi(left.release) ? [[SAVED_UI_KEY, JSON.stringify(saved.preferences)]] : []
-    )
+    // No timer has run. Every release saved the breakdown under its earlier
+    // name, which is not read: the value is rewritten at once.
+    const now = JSON.stringify({
+      isBalanceHidden: saved.preferences.isBalanceHidden,
+      balanceDetailOpen: false,
+    })
+    expect(localStorage.getItem(SAVED_UI_KEY)).toBe(now)
+    expect(setItem.mock.calls).toEqual([[SAVED_UI_KEY, now]])
     expect(removeItem).not.toHaveBeenCalled()
     const everything = Object.values({ ...localStorage }).join('\n')
     expect(everything).not.toContain(left.contactAddress)
@@ -257,7 +290,7 @@ describe.each(LEFT_BY)('the ui state saved by %s', (_, leftByRelease) => {
     vi.runOnlyPendingTimers()
     expect(JSON.parse(localStorage.getItem(SAVED_UI_KEY)!)).toEqual({
       isBalanceHidden: false,
-      balanceDetailExpanded: store.getState().ui.balanceDetailExpanded,
+      balanceDetailOpen: false,
     })
   })
 })

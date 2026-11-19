@@ -408,7 +408,7 @@ describe('the send form while the account and network stay the same', () => {
       }),
       uiActions.setNavigationSource(0),
       uiActions.setBalanceHidden(true),
-      uiActions.setBalanceDetailExpanded(false),
+      uiActions.setBalanceDetailOpen(true),
     ]) {
       store.dispatch(action)
       expect(sendForm(store.getState()), action.type).toEqual(FILLED_FORM)
