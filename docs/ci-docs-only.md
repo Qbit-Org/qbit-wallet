@@ -252,8 +252,9 @@ version, both in `packages/wallet-background/src/config/`:
 - `local-wallet-config.ts` holds the `version` that the update prompt compares
   with the running one, by order. A version bump can cross that version
   without naming it, so a version bump counts only while the file leaves it
-  empty, which turns the prompt off: its text must hold `version:` once,
-  followed by `''`. Anything else there runs every version bump in full.
+  empty, which turns the prompt off: its text must hold the word `version`
+  once, as `version: ''`. Anything else there runs every version bump in
+  full.
 
 **Why only G3.** The lanes of `Typecheck, test, and build` build and package
 the extension under its version, and check the built manifest's version

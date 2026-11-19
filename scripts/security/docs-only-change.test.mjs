@@ -990,6 +990,8 @@ test('a version bump that changes anything else, or that a source names, runs in
       "{ version: '', other: { version: '2.0.0' } }",
       "{ version: '2.0.0', other: { version: '' } }",
       "{ version: '' + NEXT_RELEASE }",
+      "{ version: '', ['version']: '2.0' }",
+      "{ version: '', ...{ version } }",
       "{ statusMessage: '' }",
       '',
     ].map(config => [
@@ -1029,6 +1031,15 @@ test('a version bump that changes anything else, or that a source names, runs in
   for (const version of ['1.1.0', '2.0.0', '1.10.0']) {
     assert.equal(versionVerdictOf(versionPullRequest(t, bump(version))).version, version)
   }
+  // The new version anywhere in the bundled configuration stops it too.
+  const named = versionVerdictOf(
+    versionPullRequest(t, bump(), {
+      files: {
+        [WALLET_CONFIG_FILE]: "const LOCAL_WALLET_CONFIG = { version: '' } // from 1.0.11\n",
+      },
+    })
+  )
+  assert.match(named.reason, /local-wallet-config\.ts names version 1\.0\.11/)
   // A notice for another version does not stop it.
   const other = versionVerdictOf(
     versionPullRequest(t, bump(), {

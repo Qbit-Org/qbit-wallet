@@ -69,7 +69,7 @@ export const VERSION_KEYED_SOURCES = [
   { path: 'packages/wallet-background/src/config/local-version-notices.ts', emptyVersion: false },
   { path: 'packages/wallet-background/src/config/local-wallet-config.ts', emptyVersion: true },
 ]
-const VERSION_SETTING = /\bversion\s*:/g
+const VERSION_WORD = /\bversion\b/g
 const EMPTY_VERSION_SETTING = /\bversion\s*:\s*''\s*[,}]/
 // x.y.z with no leading zero, each part a number Chrome accepts in a manifest
 // version: 0 to 65535.
@@ -196,9 +196,11 @@ function isHigher(parts, than) {
   return index !== -1 && parts[index] > than[index]
 }
 
-// Whether a source sets `version` once, to the empty string.
+// Whether a source holds the word `version` once, where it sets it to the
+// empty string. A second mention could set it another way, as a shorthand or
+// a computed key does.
 function leavesVersionEmpty(text) {
-  return (text.match(VERSION_SETTING) ?? []).length === 1 && EMPTY_VERSION_SETTING.test(text)
+  return (text.match(VERSION_WORD) ?? []).length === 1 && EMPTY_VERSION_SETTING.test(text)
 }
 
 function changedLines(before, after) {
