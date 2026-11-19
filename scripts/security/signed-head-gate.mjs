@@ -20,7 +20,8 @@ import {
 //   2. The force label (TREE_PASS_FORCE_LABEL) on the pull request runs in
 //      full; labels that cannot be read run in full too.
 //   3. A tree pass marker hit (the decide step's skip) does not wait.
-//   4. A docs-only change (the docs-only step's docs-only) does not wait.
+//   4. A docs-only change (the docs-only step's docs-only), which for G3
+//      includes a version bump, does not wait.
 //   5. GitHub's answer for the head commit, read from this repository by the
 //      pull request's head SHA, a fork's head included: it waits only when
 //      that answer is well formed, is for exactly that commit and says the
@@ -174,7 +175,8 @@ export async function decideSignedHead(
   if (env.TREE_PASS_DOCS_ONLY === 'true') {
     return {
       wait: false,
-      reason: 'the pull request changes only documentation that no skipped step reads',
+      reason:
+        'the pull request changes only documentation that no skipped step reads, or only that and the extension version',
     }
   }
   // One deadline for the whole decision, carried through both requests, each
