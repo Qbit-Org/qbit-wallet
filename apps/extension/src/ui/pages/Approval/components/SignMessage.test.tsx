@@ -70,7 +70,6 @@ vi.mock('@/ui/components', async () => {
   };
 });
 
-vi.mock('@/ui/components/ColdWallet', () => ({ ColdWalletSignMessage: () => null }));
 vi.mock('@/ui/components/LoadingPage', () => ({ default: () => null }));
 vi.mock('@/ui/components/PhishingDetection', () => ({ PhishingDetection: () => null }));
 vi.mock('@/ui/components/WebsiteBar', () => ({ default: () => null }));
@@ -141,7 +140,6 @@ function signMessageLogic(currentToSignMessage = toSignMessage) {
         ? key
         : `${key}:${Array.isArray(substitutions) ? substitutions.join(',') : substitutions}`,
     session: { origin: context.origin, icon: '', name: 'Approval' },
-    isColdWalletSigning: false,
     showMultiSignView: false,
     disclaimerVisible: false,
     toSignMessages: [currentToSignMessage],
@@ -156,8 +154,6 @@ function signMessageLogic(currentToSignMessage = toSignMessage) {
     onQuickMultiSign: vi.fn(),
     onTryMultiSign: vi.fn(),
     onTrustSite: vi.fn(),
-    onColdWalletSigningSuccess: vi.fn(),
-    onColdWalletSigningBack: vi.fn(),
     readonlySignature: '',
     setReadonlySignature: vi.fn(),
     onDisclaimerModalClose: vi.fn()

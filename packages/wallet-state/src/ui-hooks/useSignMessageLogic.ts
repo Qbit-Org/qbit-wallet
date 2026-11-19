@@ -45,7 +45,6 @@ export function useSignMessageLogic(props: SignMessageProps) {
 
   const { resolveApproval, rejectApproval } = useApproval()
 
-  const [isColdWalletSigning, setIsColdWalletSigning] = useState(false)
   const [readonlySignature, setReadonlySignature] = useState('')
 
   const wallet = useWallet()
@@ -123,7 +122,6 @@ export function useSignMessageLogic(props: SignMessageProps) {
   const currentToSignMessage = toSignMessages[signingTxIndex]
 
   const signedMessages = useRef<SignedMessage[]>([])
-  const coldWalletSigningGuardVersion = useRef<number | undefined>(undefined)
 
   const isBlocked = websiteCheckStatus === 'blocked'
 
@@ -275,10 +273,6 @@ export function useSignMessageLogic(props: SignMessageProps) {
 
   const onNextStep = () => {
     switch (accountCapabilities.signMethod) {
-      case AccountSignMethod.ColdWallet:
-        coldWalletSigningGuardVersion.current = websiteGuardVersionRef.current
-        setIsColdWalletSigning(true)
-        return
       case AccountSignMethod.External:
         if (!readonlySignature) {
           tools.toastError(t('please_enter_your_signature'))
@@ -348,20 +342,6 @@ export function useSignMessageLogic(props: SignMessageProps) {
     }
   }
 
-  // coldwallet
-  const onColdWalletSigningSuccess = (data: SignedMessage) => {
-    const signingGuardVersion = coldWalletSigningGuardVersion.current
-    coldWalletSigningGuardVersion.current = undefined
-    setIsColdWalletSigning(false)
-    if (signingGuardVersion === undefined) return
-    onSignedData(data, signingTxIndex, signingGuardVersion)
-  }
-
-  const onColdWalletSigningBack = () => {
-    coldWalletSigningGuardVersion.current = undefined
-    setIsColdWalletSigning(false)
-  }
-
   // disclaimer modal
   const onDisclaimerModalClose = () => {
     setDisclaimerVisible(false)
@@ -375,7 +355,6 @@ export function useSignMessageLogic(props: SignMessageProps) {
     session,
 
     // page state
-    isColdWalletSigning,
     showMultiSignView,
 
     disclaimerVisible,
@@ -403,9 +382,6 @@ export function useSignMessageLogic(props: SignMessageProps) {
     onQuickMultiSign,
     onTryMultiSign,
     onTrustSite,
-
-    onColdWalletSigningSuccess,
-    onColdWalletSigningBack,
 
     readonlySignature,
     setReadonlySignature,
