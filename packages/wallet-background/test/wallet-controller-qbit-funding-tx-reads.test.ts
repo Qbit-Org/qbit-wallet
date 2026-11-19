@@ -332,6 +332,15 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
           false,
           false,
         ],
+        // A second recovery source read, on the reader that now holds the old ones.
+        [
+          () =>
+            (wallet as any).readQbitRecoverySourceUtxos(client, address, {
+              deferIncompleteHistory: false,
+            }),
+          false,
+          false,
+        ],
         // The send screen's prepare and its send in one transaction: an id, no ask.
         [() => wallet.getQbitUtxoSnapshot('1'), false, true],
         // The send screen's own read as it opens.
@@ -346,7 +355,8 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
       const riddenBefore = ridesOut()
       const firstCall = apiOverrides.calls.length
       // The send path lists the old ones as candidates (#210): the first read
-      // that reads them is the recovery source read.
+      // that reads them is the first recovery source read, and the second
+      // reads only the young ones.
       expect(await txReadsOf(read)).toBe(index === 1 ? OUTPUTS + 3 : 3)
       expect(youngReads() - before).toBe(3)
       expect(ridesOut() - riddenBefore).toBe(ridden ? 1 : 0)
