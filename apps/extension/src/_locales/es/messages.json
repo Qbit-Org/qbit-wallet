@@ -1118,6 +1118,12 @@
   "qbit_partial_signature_all_outputs": {
     "message": "Esta firma fija todas las salidas"
   },
+  "qbit_funding_shortfall": {
+    "message": "Déficit para las salidas mostradas"
+  },
+  "qbit_funding_shortfall_description": {
+    "message": "Las entradas de esta transacción no cubren las salidas mostradas, y tu firma fija solo una parte de ella. El déficit es la diferencia para las salidas mostradas ahora, sin contar ninguna tarifa de red. Antes de que pueda difundirse, se pueden añadir entradas, y las salidas que tu firma no fija pueden cambiar o eliminarse, así que otra cantidad podría completarla. Firmar no garantiza que llegue a completarse ni que se te pague."
+  },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE es un tipo de firma especial que permite modificar la transacción después de firmarla. Esto puede llevar a una pérdida potencial de fondos si la transacción es alterada maliciosamente. Por favor asegúrese de confiar en la fuente de esta transacción antes de proceder."
   },
@@ -2509,6 +2515,15 @@
   },
   "psbt_not_finalized": {
     "message": "Firmada, sin finalizar: el sitio u otros firmantes deben finalizarla antes de poder difundirla"
+  },
+  "psbt_not_finalized_needs_funding": {
+    "message": "Firmada, sin finalizar: no puede finalizarse ni difundirse hasta que sus entradas cubran sus salidas"
+  },
+  "psbt_funding": {
+    "message": "Financiación"
+  },
+  "psbt_network_fee_not_set": {
+    "message": "No incluida en el déficit: la transacción no tiene tarifa hasta que sus entradas cubran sus salidas"
   },
   "psbt_locktime": {
     "message": "Bloqueo temporal"

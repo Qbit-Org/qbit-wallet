@@ -1,8 +1,10 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { init, sign as rawPqcSign, verify as verifyPqc } from '@qbit-oss/pqc'
+import { init, keygen, sign as rawPqcSign, verify as verifyPqc } from '@qbit-oss/pqc'
 import {
   P2MR_LEAF_VERSION_V1,
+  PSBT_IN_P2MR_SCRIPT_SIG,
+  PSBT_IN_SIGHASH_TYPE,
   SIGHASH_DEFAULT,
   buildControlBlock,
   bytesToHex as protocolBytesToHex,
@@ -10,13 +12,17 @@ import {
   createP2mrPsbt,
   decodePsbt,
   descriptorChecksum,
+  extractP2mrTransaction,
+  finalizeP2mrPsbt,
   hexToBytes as protocolHexToBytes,
   p2mrAddressFromPubkey,
   p2mrLeafHash,
+  p2mrScriptPubKey,
   p2mrSighash,
   psbtUnsignedTransaction,
   serializePsbt,
   signP2mrPsbt,
+  singleKeyLeafScript,
   qbitDataSigPqcHash,
   qbitWalletMessageHash,
   verifyP2mrMessageProof,
@@ -1219,6 +1225,163 @@ describe('qbit-hd-keyring', () => {
     }
   })
 
+  it('opts a plan in to a funding shortfall only when every key names 0x81 or 0x83', () => {
+    const shortfall = { allowNonDefaultSighash: true, allowOutputsAboveInputs: true }
+    expect(p2mrSigningOptionsFor([{ hashType: 0x83 }])).toEqual(shortfall)
+    expect(p2mrSigningOptionsFor([{ hashType: 0x81 }, { hashType: 0x83 }])).toEqual(shortfall)
+    // A key under the default type commits to every input: no shortfall.
+    expect(p2mrSigningOptionsFor([{ hashType: 0x83 }, {}])).toEqual({
+      allowNonDefaultSighash: true,
+    })
+    expect(p2mrSigningOptionsFor([{ hashType: 0x83 }, { hashType: SIGHASH_DEFAULT }])).toEqual({
+      allowNonDefaultSighash: true,
+    })
+    expect(p2mrSigningOptionsFor([])).toEqual({})
+  })
+
+  describe('a draft whose outputs exceed its inputs', () => {
+    const SINGLE_ANYONECANPAY = 0x83
+
+    /** The account's only coin, 100,000, against a payout of 150,000: 50,000 short. */
+    async function draftFixture(keyring: QbitHdKeyring, hashType?: number, inputCount = 1) {
+      return buildP2mrSpendFixture(keyring, {
+        inputCount,
+        outputValue: 150_000n + BigInt(inputCount - 1) * 101_000n,
+        ...(hashType === undefined ? {} : { hashType }),
+      })
+    }
+
+    it('signs its one input under 0x83, and the signature verifies once another party funds it', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const draft = await draftFixture(keyring as QbitHdKeyring, SINGLE_ANYONECANPAY)
+      expect(decodePsbt(draft.psbt, { allowOutputsAboveInputs: true }).shortfall).toBe(50_000n)
+
+      const budget = await service.preflightP2mrPsbtSigning(pubkey!, {
+        psbt: draft.psbt,
+        keys: draft.keys,
+      })
+      const signed = await service.signP2mrPsbtWithCounter(
+        pubkey!,
+        { psbt: draft.psbt, keys: draft.keys },
+        budget
+      )
+
+      expect(budget).toMatchObject({ required: 1, cached: 0 })
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(1)
+      const [sellerSig] = decodePsbt(signed.psbt, { allowOutputsAboveInputs: true }).inputs[0]!
+        .scriptSigs
+      expect(sellerSig!.signature.hashType).toBe(SINGLE_ANYONECANPAY)
+      // The draft itself never finalizes.
+      expect(() => finalizeP2mrPsbt(signed.psbt)).toThrow('exceeds total input value')
+
+      // Another party adds an input of 60,000 and takes 5,000 back: a 5,000 fee.
+      const funder = keygen(new Uint8Array(128).fill(0x44))
+      const funderLeaf = singleKeyLeafScript(funder.publicKey)
+      const funderLeafHash = p2mrLeafHash(P2MR_LEAF_VERSION_V1, funderLeaf)
+      const funderUtxo = { value: 60_000n, scriptPubKey: p2mrScriptPubKey(funderLeafHash) }
+      const draftTx = psbtUnsignedTransaction(draft.psbt)
+      const funded = createP2mrPsbt({
+        inputs: [
+          {
+            prevout: draftTx.inputs[0]!.prevout,
+            witnessUtxo: draft.spentOutputs[0]!,
+            leafScript: singleKeyLeafScript(draft.pubkey),
+            controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
+            merkleRoot: draft.leafHash,
+          },
+          {
+            prevout: { txid: fixtureTxid(200), vout: 0 },
+            witnessUtxo: funderUtxo,
+            leafScript: funderLeaf,
+            controlBlock: buildControlBlock(P2MR_LEAF_VERSION_V1, []),
+            merkleRoot: funderLeafHash,
+          },
+        ],
+        outputs: [draftTx.outputs[0]!, { value: 5_000n, scriptPubKey: funderUtxo.scriptPubKey }],
+      })
+      expect(decodePsbt(funded).fee).toBe(5_000n)
+      // The account's signature, as the draft carried it, verifies in the funded transaction.
+      const fundedTx = psbtUnsignedTransaction(funded)
+      const spentOutputs = [draft.spentOutputs[0]!, funderUtxo]
+      const sellerSighash = p2mrSighash({
+        tx: fundedTx,
+        inputIndex: 0,
+        spentOutputs,
+        leafHash: draft.leafHash,
+        hashType: SINGLE_ANYONECANPAY,
+      })
+      expect(verifyPqc(draft.pubkey, sellerSighash, sellerSig!.signature.signature)).toBe(true)
+      funded.inputs[0]!.push(
+        ...signed.psbt.inputs[0]!.filter(
+          entry => entry.key[0] === PSBT_IN_P2MR_SCRIPT_SIG || entry.key[0] === PSBT_IN_SIGHASH_TYPE
+        )
+      )
+      const complete = signP2mrPsbt({
+        psbt: funded,
+        keys: [{ inputIndex: 1, pubkey: funder.publicKey, leafHash: funderLeafHash }],
+        sign: sighash => rawPqcSign(funder.secretKey, sighash),
+      }).psbt
+      expect(extractP2mrTransaction(finalizeP2mrPsbt(complete)).length).toBeGreaterThan(0)
+    })
+
+    it.each([
+      ['the default type', undefined],
+      ['SIGHASH_SINGLE without ANYONECANPAY', 0x03],
+      ['SIGHASH_NONE|ANYONECANPAY', 0x82],
+    ])('refuses it under %s before any key use', async (_name, hashType) => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const draft = await draftFixture(keyring as QbitHdKeyring, hashType)
+
+      for (const attempt of [
+        () => service.preflightP2mrPsbtSigning(pubkey!, { psbt: draft.psbt, keys: draft.keys }),
+        () => service.signP2mrPsbtWithCounter(pubkey!, { psbt: draft.psbt, keys: draft.keys }),
+      ]) {
+        await expect(attempt()).rejects.toThrow(
+          hashType === undefined ? 'exceeds total input value' : /sighash|exceeds total input value/
+        )
+      }
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(0)
+    })
+
+    it('refuses it when one of its keys signs under the default type', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const draft = await draftFixture(keyring as QbitHdKeyring, SINGLE_ANYONECANPAY, 2)
+      const mixed = [draft.keys[0]!, { ...draft.keys[1]!, hashType: undefined }].map(
+        ({ hashType, ...key }) => (hashType === undefined ? key : { ...key, hashType })
+      )
+      // Input 1 names no type, so its key, under the default, commits to every input.
+      expect(p2mrSigningOptionsFor(mixed)).toEqual({ allowNonDefaultSighash: true })
+
+      await expect(
+        service.signP2mrPsbtWithCounter(pubkey!, { psbt: draft.psbt, keys: mixed })
+      ).rejects.toThrow('exceeds total input value')
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(0)
+    })
+
+    it('does not vouch for it under a recovery migration assertion', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const draft = await draftFixture(keyring as QbitHdKeyring, SINGLE_ANYONECANPAY)
+
+      for (const option of [
+        'allowMigrationProtectedAssetTransfer',
+        'allowMigrationConsolidation',
+      ]) {
+        await expect(
+          service.preflightP2mrPsbtSigning(
+            pubkey!,
+            { psbt: draft.psbt, keys: draft.keys },
+            { [option]: true }
+          )
+        ).rejects.toThrow('only under the default sighash type')
+      }
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(0)
+    })
+  })
+
   it('refuses to sign a plan that names a type outside 0x81 and 0x83', async () => {
     const { service, keyring } = await createUnlockedQbitService()
     const [pubkey] = await service.getAccounts()
@@ -1568,6 +1731,27 @@ describe('qbit-hd-keyring', () => {
       }
       return fixtures
     }
+
+    it('opens a batch with a draft short of funds beside a funded entry, and signs both', async () => {
+      const { service, keyring } = await createUnlockedQbitService()
+      const [pubkey] = await service.getAccounts()
+      const draft = await buildP2mrSpendFixture(keyring as QbitHdKeyring, {
+        hashType: 0x83,
+        outputValue: 150_000n,
+      })
+      const [whole] = await differentFixtures(keyring as QbitHdKeyring, [1])
+      const { batch, sign } = await prepareBatch(service, pubkey!, [draft, whole!])
+
+      expect(batch.budget).toMatchObject({ required: 2, cached: 0 })
+      const signedDraft = await sign(0)
+      expect(
+        decodePsbt(signedDraft.psbt, { allowOutputsAboveInputs: true }).inputs[0]!.scriptSigs[0]!
+          .signature.hashType
+      ).toBe(0x83)
+      const signedWhole = await sign(1)
+      expect(extractP2mrTransaction(finalizeP2mrPsbt(signedWhole.psbt)).length).toBeGreaterThan(0)
+      expect(await service.getPqcSignatureCounter(pubkey!)).toBe(2)
+    })
 
     it('opens a batch with an entry that names 0x83, and signs it under that type', async () => {
       const { service, keyring } = await createUnlockedQbitService()

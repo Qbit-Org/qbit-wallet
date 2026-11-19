@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "source": "reviewed package metadata for every sha512-bound pnpm-lock.yaml name@version identity",
-  "lockfileSha256": "d8b1406274a8a86d953e675faad52e615937df69fd736c92f61c85322f45e2e3",
+  "lockfileSha256": "95261f601c03194eee23c280ee59220f19b418d085e9357bbe90b083d4e28c0d",
   "packageCount": 2080,
   "packages": {
     "@acemir/cssom@0.9.31": "MIT",
@@ -392,9 +392,9 @@
     "@pmmmwh/react-refresh-webpack-plugin@0.5.3": "MIT",
     "@polka/url@1.0.0-next.29": "MIT",
     "@puppeteer/browsers@3.0.6": "Apache-2.0",
-    "@qbit-oss/api@0.1.1": "MIT",
+    "@qbit-oss/api@0.1.2": "MIT",
     "@qbit-oss/pqc@0.1.1": "MIT",
-    "@qbit-oss/protocol@0.1.1": "MIT",
+    "@qbit-oss/protocol@0.1.2": "MIT",
     "@reduxjs/toolkit@1.9.2": "MIT",
     "@rollup/rollup-android-arm-eabi@4.62.3": "MIT",
     "@rollup/rollup-android-arm64@4.62.3": "MIT",

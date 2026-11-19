@@ -1118,6 +1118,12 @@
   "qbit_partial_signature_all_outputs": {
     "message": "Cette signature verrouille toutes les sorties"
   },
+  "qbit_funding_shortfall": {
+    "message": "Déficit pour les sorties affichées"
+  },
+  "qbit_funding_shortfall_description": {
+    "message": "Les entrées de cette transaction ne couvrent pas les sorties affichées, et votre signature n'en verrouille qu'une partie. Le déficit est l'écart pour les sorties affichées actuellement, hors frais de réseau. Avant sa diffusion, des entrées peuvent être ajoutées, et les sorties que votre signature ne verrouille pas peuvent changer ou être supprimées : un autre montant peut donc la compléter. Signer ne garantit pas qu'elle soit un jour complétée ni que vous soyez payé."
+  },
   "sighash_none_risk_description": {
     "message": "SIGHASH_NONE est un type de signature spécial qui permet de modifier la transaction après signature. Cela peut entraîner une perte potentielle de fonds si la transaction est altérée malicieusement. Veuillez vous assurer de faire confiance à la source de cette transaction avant de continuer."
   },
@@ -2509,6 +2515,15 @@
   },
   "psbt_not_finalized": {
     "message": "Signée, non finalisée : le site ou d'autres signataires doivent la finaliser avant qu'elle puisse être diffusée"
+  },
+  "psbt_not_finalized_needs_funding": {
+    "message": "Signée, non finalisée : elle ne peut être ni finalisée ni diffusée tant que ses entrées ne couvrent pas ses sorties"
+  },
+  "psbt_funding": {
+    "message": "Financement"
+  },
+  "psbt_network_fee_not_set": {
+    "message": "Non inclus dans le déficit : la transaction n'a pas de frais tant que ses entrées ne couvrent pas ses sorties"
   },
   "psbt_locktime": {
     "message": "Verrouillage temporel"

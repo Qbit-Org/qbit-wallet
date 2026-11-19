@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "41ce38b884f4bc8b3a0e9d9de18ac68de4a2c6ff",
-  "lockfileSha256": "d8b1406274a8a86d953e675faad52e615937df69fd736c92f61c85322f45e2e3",
+  "auditedCommit": "7a9cdf6d0920354fdc2598da4fd2cdfdaefbe90b",
+  "lockfileSha256": "95261f601c03194eee23c280ee59220f19b418d085e9357bbe90b083d4e28c0d",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "a8de3bbc98a996722ea1f954b562dce29d8741b70725846c643028a340bbac88",
+    "sha256": "16f1808be89b23ecb6f526050016b00d8059b2912203719772c1f3fc23ee9e77",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -32,24 +32,24 @@
     },
     "auditVulnerableOccurrences": {
       "info": 0,
-      "low": 10,
+      "low": 9,
       "moderate": 32,
       "high": 0,
       "critical": 0
     },
-    "advisoryRecords": 42,
+    "advisoryRecords": 41,
     "advisoryRecordsBySeverity": {
-      "low": 10,
+      "low": 9,
       "moderate": 32
     },
     "advisoryRecordsByDirectness": {
       "direct": 4,
-      "transitive": 38
+      "transitive": 37
     },
     "advisoryPathsByReachability": {
       "development-tooling-path": 530,
-      "extension-build-path": 986,
-      "test-only-path": 554,
+      "extension-build-path": 984,
+      "test-only-path": 548,
       "reachable": 30
     }
   },
@@ -2081,8 +2081,8 @@
       "workspacePackage": "qbit-extension",
       "package": "@qbit-oss/api",
       "section": "dependencies",
-      "requested": "0.1.1",
-      "resolved": "0.1.1",
+      "requested": "0.1.2",
+      "resolved": "0.1.2",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "networking"
@@ -2105,8 +2105,8 @@
       "workspacePackage": "qbit-extension",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.1",
-      "resolved": "0.1.1",
+      "requested": "0.1.2",
+      "resolved": "0.1.2",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -2766,8 +2766,8 @@
       "workspacePackage": "@qbit/keyring-service",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.1",
-      "resolved": "0.1.1",
+      "requested": "0.1.2",
+      "resolved": "0.1.2",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -3182,8 +3182,8 @@
       "workspacePackage": "@qbit/wallet-connect",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.1",
-      "resolved": "0.1.1",
+      "requested": "0.1.2",
+      "resolved": "0.1.2",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -3230,8 +3230,8 @@
       "workspacePackage": "@qbit/wallet-core",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.1",
-      "resolved": "0.1.1",
+      "requested": "0.1.2",
+      "resolved": "0.1.2",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -3311,8 +3311,8 @@
       "workspacePackage": "@qbit/wallet-shared",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.1",
-      "resolved": "0.1.1",
+      "requested": "0.1.2",
+      "resolved": "0.1.2",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -3333,8 +3333,8 @@
       "workspacePackage": "@qbit/wallet-state",
       "package": "@qbit-oss/protocol",
       "section": "dependencies",
-      "requested": "0.1.1",
-      "resolved": "0.1.1",
+      "requested": "0.1.2",
+      "resolved": "0.1.2",
       "delivery": "shipped-runtime",
       "securityAdjacency": [
         "serialization"
@@ -3813,7 +3813,7 @@
       "workspacePackage": "@qbit/wallet-background",
       "package": "@qbit-oss/api",
       "section": "peerDependencies",
-      "requested": "0.1.1",
+      "requested": "0.1.2",
       "resolved": null,
       "delivery": "workspace-contract",
       "securityAdjacency": [
@@ -3837,7 +3837,7 @@
       "workspacePackage": "@qbit/wallet-background",
       "package": "@qbit-oss/protocol",
       "section": "peerDependencies",
-      "requested": "0.1.1",
+      "requested": "0.1.2",
       "resolved": null,
       "delivery": "workspace-contract",
       "securityAdjacency": [
@@ -4293,7 +4293,7 @@
     },
     {
       "package": "@qbit-oss/api",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "categories": [
         "networking"
       ],
@@ -4301,14 +4301,14 @@
         "production-closure"
       ],
       "peerVariants": 1,
-      "integrity": "sha512-8m9I2pqU7ndUiipbXvcUWYhFsHl7Fod2I7RBCyGj4ZpH7atnm1DOd91gz1PebEQNN1NWb+oC7lzeLhA75bSh9g==",
+      "integrity": "sha512-bsfbIGwckq2Cjt2ikNbW/mW+9ABGsxdeyGfZ09NQLt09E60AfJNvid0YzMtVL3WQNKUM2f3yczKWlZObmK5KiQ==",
       "directDeclarations": [
         {
           "workspace": "apps/extension",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.1",
-          "resolved": "0.1.1"
+          "requested": "0.1.2",
+          "resolved": "0.1.2"
         }
       ]
     },
@@ -4342,7 +4342,7 @@
     },
     {
       "package": "@qbit-oss/protocol",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "categories": [
         "serialization"
       ],
@@ -4350,49 +4350,49 @@
         "production-closure"
       ],
       "peerVariants": 1,
-      "integrity": "sha512-6KtWP2Ixo5Kh/IYLiECw7pyfR1TbSVB/JmICjyk4cpDIrTPOeKDl3AqhY3DqKZDLChKotvHeljoONhDHCCN7ww==",
+      "integrity": "sha512-DCVHbXhjYhRMlE44iF0xsQ6MWvMuoPpKbwwVNBtcvX9GuVeryPZdoHf+BdB4UiZ78HvrxhWGxkxbQYL9Q6iUVQ==",
       "directDeclarations": [
         {
           "workspace": "apps/extension",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.1",
-          "resolved": "0.1.1"
+          "requested": "0.1.2",
+          "resolved": "0.1.2"
         },
         {
           "workspace": "packages/keyring-service",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.1",
-          "resolved": "0.1.1"
+          "requested": "0.1.2",
+          "resolved": "0.1.2"
         },
         {
           "workspace": "packages/wallet-connect",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.1",
-          "resolved": "0.1.1"
+          "requested": "0.1.2",
+          "resolved": "0.1.2"
         },
         {
           "workspace": "packages/wallet-core",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.1",
-          "resolved": "0.1.1"
+          "requested": "0.1.2",
+          "resolved": "0.1.2"
         },
         {
           "workspace": "packages/wallet-shared",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.1",
-          "resolved": "0.1.1"
+          "requested": "0.1.2",
+          "resolved": "0.1.2"
         },
         {
           "workspace": "packages/wallet-state",
           "section": "dependencies",
           "delivery": "shipped-runtime",
-          "requested": "0.1.1",
-          "resolved": "0.1.1"
+          "requested": "0.1.2",
+          "resolved": "0.1.2"
         }
       ]
     },
@@ -6858,68 +6858,6 @@
           "directDelivery": "test-only-tooling",
           "reachability": "test-only-path",
           "pathCount": 8
-        }
-      ]
-    },
-    {
-      "advisory": "GHSA-gcqx-w48m-w2h4",
-      "package": "deepmerge",
-      "title": "deepmerge mergeObject() allows prototype poisoning of returned objects",
-      "severity": "low",
-      "url": "https://github.com/advisories/GHSA-gcqx-w48m-w2h4",
-      "vulnerableVersions": [
-        "4.3.1"
-      ],
-      "directness": "transitive",
-      "reachability": [
-        "extension-build-path",
-        "reachable",
-        "test-only-path"
-      ],
-      "productionClosure": [
-        {
-          "vulnerableVersion": "4.3.1",
-          "path": "apps/extension > @svgr/webpack@8.1.0 > @svgr/plugin-svgo@8.1.0 > deepmerge@4.3.1"
-        }
-      ],
-      "acceptedException": null,
-      "findingPathCount": 8,
-      "pathContexts": [
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "4.3.1",
-          "directPackage": "@svgr/webpack",
-          "directVersion": "8.1.0",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "4.3.1",
-          "directPackage": "jest-watch-typeahead",
-          "directVersion": "1.0.0",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 3
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "4.3.1",
-          "directPackage": "jest",
-          "directVersion": "27.4.3",
-          "directDelivery": "test-only-tooling",
-          "reachability": "test-only-path",
-          "pathCount": 3
-        },
-        {
-          "workspace": "apps/extension",
-          "vulnerableVersion": "4.3.1",
-          "directPackage": "react-dev-utils",
-          "directVersion": "12.0.1",
-          "directDelivery": "extension-build-packaging",
-          "reachability": "extension-build-path",
-          "pathCount": 1
         }
       ]
     },
