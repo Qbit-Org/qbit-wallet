@@ -57,6 +57,7 @@ repository.
 
 ### Repository and release
 
+- The extension version is 1.0.11.
 - The dependency exception for a picomatch advisory is removed, because
   GitHub withdrew the advisory (#245).
 
