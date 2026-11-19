@@ -128,7 +128,8 @@ the first rule that applies settles it:
 1. The pull request has the `ci:full-run` label: G3 runs in full.
 2. A [tree pass marker](ci-tree-pass-marker.md) vouches for the tree: the
    shards skip their steps, as before.
-3. The pull request changes only documentation that no skipped step reads
+3. The pull request changes only documentation that no skipped step reads,
+   or only that and the extension version
    ([Docs-only changes](ci-docs-only.md)): the same.
 4. GitHub has not verified the signature of the head commit: G3 **waits for
    a signed head**.

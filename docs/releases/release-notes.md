@@ -5,6 +5,13 @@ the project's earlier, private tracker, not to issues or pull requests in this
 repository. From 1.0.8, issue numbers such as #30 refer to issues in this
 repository.
 
+## 1.0.12
+
+### Repository and release
+
+- A pull request that only sets the extension version, with or without
+  documentation, no longer runs the browser scenarios.
+
 ## 1.0.11
 
 ### Balance card

@@ -300,7 +300,7 @@ test('the label, a marker hit, a docs-only change and other events never wait or
       'a docs-only change',
       { TREE_PASS_DOCS_ONLY: 'true' },
       silent,
-      'the pull request changes only documentation that no skipped step reads',
+      'the pull request changes only documentation that no skipped step reads, or only that and the extension version',
       [],
     ],
     [
