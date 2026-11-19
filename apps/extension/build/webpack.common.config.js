@@ -43,7 +43,6 @@ const singletonPackages = {
 const config = (env) => {
   const version = env.version || require('../package.json').version;
   const paths = getBrowserPaths(env.browser);
-  const channel = env.channel;
   // Check if Tailwind config exists
   const useTailwind = fs.existsSync(path.join(paths.appPath, 'tailwind.config.js'));
 
@@ -488,7 +487,6 @@ const config = (env) => {
       new webpack.DefinePlugin({
         'process.env.version': JSON.stringify(`Version: ${version}`),
         'process.env.release': JSON.stringify(version),
-        'process.env.channel': JSON.stringify(channel),
         // Consensus provenance for the About screen, sourced from the
         // tracked pin files so the values are never hand-maintained twice.
         'process.env.coreReleaseTag': JSON.stringify(corePin.runtimeRelease.tag),

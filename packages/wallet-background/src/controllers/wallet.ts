@@ -132,7 +132,6 @@ import {
   type QbitUtxoSnapshot,
   QbitSendBroadcastClaim,
   PublicKeyUserToSignInput,
-  RateUsStatus,
   RiskType,
   SESSION_EVENTS,
   SignMessageType,
@@ -235,7 +234,6 @@ import {
   findActiveQbitAddressGroups,
   findQbitSpentOutpoints,
   getQbitAccountHistory,
-  getQbitAddressUtxos,
   getQbitAddressUtxosClassifiedPastLimit,
   getQbitAddressSummaries,
   getQbitRawTransaction,
@@ -344,7 +342,6 @@ import {
   AddressFlagType,
   BRAND_ALIAN_TYPE_TEXT,
   KEYRING_TYPES,
-  NETWORK_TYPES,
 } from '@qbit/wallet-shared'
 import { isPlainObject } from 'lodash'
 import log from 'loglevel'
@@ -1614,9 +1611,6 @@ export class WalletController extends BaseController {
   setBackgroundInited = async (value: boolean) => {
     this.backgroundInited = value
   }
-  getBackgroundInited = async () => {
-    return this.backgroundInited
-  }
   /**
    * Record why start-up stopped. Start-up runs once per worker start, so the
    * failure stands until the worker restarts.
@@ -2402,10 +2396,6 @@ export class WalletController extends BaseController {
     ) {
       throw new Error('external Qbit signing lock is not active')
     }
-  }
-
-  getDesc = () => {
-    return 'desc_test'
   }
 
   /* wallet */
@@ -3460,14 +3450,6 @@ export class WalletController extends BaseController {
     })
   }
 
-  getCurrency = () => {
-    return preferenceService.getCurrency()
-  }
-
-  setCurrency = (currency: string) => {
-    preferenceService.setCurrency(currency)
-  }
-
   /* keyrings */
 
   resetAllData = async () => {
@@ -4355,11 +4337,9 @@ export class WalletController extends BaseController {
     return descriptors
   }
 
-  getPreMnemonics = () => keyringService.getPreMnemonics()
   generatePreMnemonic = async (strength?: 128 | 256) => {
     return await keyringService.generatePreMnemonic(strength)
   }
-  removePreMnemonics = () => keyringService.removePreMnemonics()
   /** Tracked as a wallet addition under way (see trackWalletAddition). */
   createKeyringWithMnemonics = (
     ...args: Parameters<WalletController['performCreateKeyringWithMnemonics']>
@@ -4409,7 +4389,6 @@ export class WalletController extends BaseController {
     )
     const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
     await this.selectKeyring(keyring)
-    preferenceService.setShowSafeNotice(true)
   }
 
   createTmpKeyringWithMnemonics = async (
@@ -6656,7 +6635,6 @@ export class WalletController extends BaseController {
     )
     const walletKeyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
     await this.selectKeyring(walletKeyring)
-    preferenceService.setShowSafeNotice(true)
 
     if (discovery.activeIndexes.length > 0) {
       // The keyring this restore added, not the last slot: another wallet
@@ -7407,10 +7385,6 @@ export class WalletController extends BaseController {
     return undefined
   }
 
-  getKeyringByType = (type: string) => {
-    return keyringService.getKeyringByType(type)
-  }
-
   // Account derivations in flight, keyed by keyring identity. The chain-state
   // queue serializes derivations but does not deduplicate them, and the UI's
   // in-flight lock only spans one screen mount: navigating away and back,
@@ -7509,11 +7483,6 @@ export class WalletController extends BaseController {
       floorScanPending: true,
       floorScanError: floorScanError ?? 'restore floor scan did not lift the signing gate',
     }
-  }
-
-  getAccountsCount = async () => {
-    const accounts = await keyringService.getAccounts()
-    return accounts.filter(x => x).length
   }
 
   private publishAccountChange = (account: Account): void => {
@@ -8532,15 +8501,6 @@ export class WalletController extends BaseController {
     await contactBookService.replaceContact(address, chain, data)
   }
 
-  listContact = (includeAlias = true): ContactBookItem[] => {
-    const list = contactBookService.listContacts()
-    if (includeAlias) {
-      return list
-    } else {
-      return list.filter(item => !item.isAlias)
-    }
-  }
-
   listContacts = (): ContactBookItem[] => {
     return contactBookService.listContacts()
   }
@@ -8555,14 +8515,6 @@ export class WalletController extends BaseController {
 
   getNextAlianName = (keyring: WalletKeyring) => {
     return this._generateAlianName(keyring.type, keyring.accounts.length + 1)
-  }
-
-  getHighlightWalletList = () => {
-    return preferenceService.getWalletSavedList()
-  }
-
-  updateHighlightWalletList = list => {
-    return preferenceService.updateWalletSavedList(list)
   }
 
   getAllAlianName = (): (ContactBookItem | undefined)[] => {
@@ -8585,28 +8537,9 @@ export class WalletController extends BaseController {
     return preferenceService.updateIsFirstOpen()
   }
 
-  reportErrors = (error: string) => {
-    console.error('report not implemented')
-  }
-
   getNetworkType = () => {
     const chainType = this.getChainType()
     return CHAINS_MAP[chainType]!.networkType
-  }
-
-  setNetworkType = async (networkType: NetworkType) => {
-    if (networkType === NetworkType.MAINNET) {
-      await this.setChainType(ChainType.QBIT_MAINNET)
-    } else if (networkType === NetworkType.REGTEST) {
-      await this.setChainType(ChainType.QBIT_REGTEST)
-    } else {
-      await this.setChainType(ChainType.QBIT_TESTNET4)
-    }
-  }
-
-  getNetworkName = () => {
-    const networkType = this.getNetworkType()
-    return NETWORK_TYPES[networkType]!.name
   }
 
   getQbitNetworkName = () => chainTypeToQbitNetworkName(this.getChainType())
@@ -9317,7 +9250,7 @@ export class WalletController extends BaseController {
   /**
    * The reads behind classifying any address's outputs, shared by the
    * balance (`getAddressBalanceV2`) and every read of outputs
-   * (`qbitAccountUtxosOn`, `getAddressUtxo`, the recovery sources): one
+   * (`qbitAccountUtxosOn`, the recovery sources): one
    * limiter per API client, so the wallet keeps at most
    * `QBIT_CLASSIFY_MAX_READS_IN_FLIGHT` of them in flight to one explorer,
    * and what funding transactions said of their outputs, so a balance poll of
@@ -9333,7 +9266,7 @@ export class WalletController extends BaseController {
    * the total alone, the split unknown, and backs off
    * (`getQbitSpendableBalanceV2`). Every
    * read of outputs a send, sweep or plan may spend (`qbitAccountUtxosOn`,
-   * `getAddressUtxo`, the recovery sources) still reads afresh an output that
+   * the recovery sources) still reads afresh an output that
    * is not a coinbase output and is younger than a coinbase must be to
    * mature, and its answer replaces the kept one; so after one wrong
    * `is_coinbase` answer the balance can count a reward younger than 1,000
@@ -13339,32 +13272,6 @@ export class WalletController extends BaseController {
     }
   }
 
-  getEditingKeyring = async () => {
-    const editingKeyringIndex = preferenceService.getEditingKeyringIndex()
-    const displayedKeyrings = await keyringService.getAllDisplayedKeyrings()
-    const displayedKeyring = displayedKeyrings[editingKeyringIndex]!
-    return this.displayedKeyringToWalletKeyring(displayedKeyring, editingKeyringIndex)
-  }
-
-  setEditingKeyring = async (index: number) => {
-    preferenceService.setEditingKeyringIndex(index)
-  }
-
-  getEditingAccount = async () => {
-    const account = preferenceService.getEditingAccount()
-    return account
-  }
-
-  setEditingAccount = async (account: Account) => {
-    preferenceService.setEditingAccount(account as any)
-  }
-
-  getAddressUtxo = async (address: string) => {
-    return getQbitAddressUtxos(this.getQbitApiClient(), address, {
-      fundingTxReads: this.qbitFundingTxReads,
-    })
-  }
-
   getConnectedSites = (): ConnectedSite[] => {
     const data = permissionService.getConnectedSites()
     return data
@@ -14093,10 +14000,6 @@ export class WalletController extends BaseController {
   ): Promise<SignedData> =>
     this.withCallingUiPort(uiPort, () => this.signPsbtV2(toSignData, options))
 
-  expireUICachedData = async (address: string) => {
-    return preferenceService.expireUICachedData(address)
-  }
-
   getWalletConfig = async () => {
     return getLocalWalletConfig()
   }
@@ -14139,14 +14042,6 @@ export class WalletController extends BaseController {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     //@ts-ignore
     psbt.__CACHE.__UNSAFE_SIGN_NONSEGWIT = enabled
-  }
-
-  getShowSafeNotice = () => {
-    return preferenceService.getShowSafeNotice()
-  }
-
-  setShowSafeNotice = (show: boolean) => {
-    return preferenceService.setShowSafeNotice(show)
   }
 
   getVersionDetail = async (version: string) => {
@@ -14202,10 +14097,6 @@ export class WalletController extends BaseController {
 
   setLockOnWindowsClosed = async (enabled: boolean) => {
     return preferenceService.setLockOnWindowsClosed(enabled)
-  }
-
-  getOpenInSidePanel = async () => {
-    return preferenceService.getOpenInSidePanel()
   }
 
   getDeveloperMode = async () => {
@@ -14748,43 +14639,6 @@ export class WalletController extends BaseController {
     if (!enabled) return false
     await this.lockWallet()
     return true
-  }
-
-  // Rate Us Status
-  getRateUsStatus = (): RateUsStatus => {
-    return preferenceService.getRateUsStatus()
-  }
-
-  setHasRated = (hasRated: boolean) => {
-    return preferenceService.setHasRated(hasRated)
-  }
-
-  setRatePromptDismissedAt = (timestamp: number | null) => {
-    return preferenceService.setRatePromptDismissedAt(timestamp)
-  }
-
-  setHasShownSecondPrompt = (hasShown: boolean) => {
-    return preferenceService.setHasShownSecondPrompt(hasShown)
-  }
-
-  resetRateUsStatus = async () => {
-    return preferenceService.resetRateUsStatus()
-  }
-
-  getGuideReaded = async () => {
-    return preferenceService.getGuideReaded()
-  }
-
-  setGuideReaded = async () => {
-    preferenceService.setGuideReaded(true)
-  }
-
-  getAcceptLowFeeMode = async () => {
-    return preferenceService.getAcceptLowFeeMode()
-  }
-
-  setAcceptLowFeeMode = async (accept: boolean) => {
-    preferenceService.setAcceptLowFeeMode(accept)
   }
 
   getEnableRBF = async () => {

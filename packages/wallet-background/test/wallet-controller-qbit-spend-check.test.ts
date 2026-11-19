@@ -286,15 +286,6 @@ describe('WalletController checks the inputs a transaction spends (#210)', () =>
       // The 5 young outputs, the 2 of change, and the parent their walk reads.
       expect(lookups()).toBe(8)
     })
-
-    it('reads each of them where every funding transaction is read, as Send did before', async () => {
-      largeAccount()
-      const wallet = new WalletController()
-
-      await wallet.getAddressUtxo(address)
-
-      expect(lookups()).toBe(20_008)
-    })
   })
 
   describe('a send, before it is built', () => {

@@ -264,14 +264,13 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
     expect(await txReadsOf(() => wallet.getAddressBalanceV2(address))).toBe(0)
   })
 
-  it('lists the deep outputs on a cold reader for the send without a lookup, and reads every one for getAddressUtxo and recovery', async () => {
+  it('lists the deep outputs on a cold reader for the send without a lookup, and reads every one for recovery', async () => {
     // The send path lists the deep ones as candidates (#210): each input a
     // transaction spends is read and checked before its first signature
-    // (wallet-controller-qbit-spend-check.test.ts). getAddressUtxo, which
-    // nothing calls, and the recovery sources read every one, as before.
+    // (wallet-controller-qbit-spend-check.test.ts). The recovery sources read
+    // every one, as before.
     for (const [read, reads] of [
       [(wallet: WalletController) => wallet.getQbitUtxos(), 1],
-      [(wallet: WalletController) => wallet.getAddressUtxo(address), OUTPUTS + 1],
       [
         (wallet: WalletController) =>
           (wallet as any).readQbitRecoverySourceUtxos(
@@ -291,7 +290,7 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
     }
   })
 
-  it("passes its one shared reader on the balance, send, output and recovery reads, and rides out server errors on the send screen's alone", async () => {
+  it("passes its one shared reader on the balance, send and recovery reads, and rides out server errors on the send screen's alone", async () => {
     explorer = accountExplorer({ deep: true })
     const wallet = controller()
     const shared = fundingTxReadsOf(wallet)
@@ -325,7 +324,6 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
     for (const [index, [read, ridden, snapshot]] of (
       [
         [() => wallet.getQbitUtxos(), false, false],
-        [() => wallet.getAddressUtxo(address), false, false],
         [
           () =>
             (wallet as any).readQbitRecoverySourceUtxos(client, address, {
@@ -348,7 +346,7 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
       const riddenBefore = ridesOut()
       const firstCall = apiOverrides.calls.length
       // The send path lists the old ones as candidates (#210): the first read
-      // that reads them is getAddressUtxo's.
+      // that reads them is the recovery source read.
       expect(await txReadsOf(read)).toBe(index === 1 ? OUTPUTS + 3 : 3)
       expect(youngReads() - before).toBe(3)
       expect(ridesOut() - riddenBefore).toBe(ridden ? 1 : 0)
@@ -372,7 +370,6 @@ describe("WalletController's shared reads of funding transactions (#169)", () =>
     for (const name of [
       'readQbitAddressUtxos',
       'readQbitAddressUtxosRidingOut',
-      'getQbitAddressUtxos',
       'getQbitAddressUtxosClassifiedPastLimit',
     ]) {
       expect(callsNamed(name).length).toBeGreaterThan(0)

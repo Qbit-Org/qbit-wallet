@@ -81,7 +81,7 @@ describe('preference restore and saves already in flight', () => {
 
     // Another preference changes, and its debounced save takes the store with
     // replace-by-fee off while the setting's save is still in flight.
-    service.setShowSafeNotice(false);
+    service.setDeveloperMode(true);
     await vi.advanceTimersByTimeAsync(1000);
     // The setting's save fails and the restored value's save is requested
     // while the debounced save is still in flight. The storage module writes

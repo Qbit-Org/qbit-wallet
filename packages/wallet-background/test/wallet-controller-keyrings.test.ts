@@ -50,7 +50,6 @@ vi.mock('../src/services', () => ({
     getInitAlianNameStatus: vi.fn(() => true),
     setChainType: vi.fn(),
     persist: vi.fn(),
-    setShowSafeNotice: vi.fn(),
   },
   sessionService: {
     broadcastEvent: vi.fn(),
@@ -507,15 +506,6 @@ describe('WalletController keyring recovery', () => {
     await expect(queuedSwitch).resolves.toBeUndefined()
     expect(preferenceService.setChainType).toHaveBeenCalledTimes(1)
     expect(preferenceService.setChainType).toHaveBeenCalledWith(ChainType.QBIT_REGTEST)
-  })
-
-  it('maps the mainnet network enum to Qbit mainnet', async () => {
-    const wallet = new WalletController()
-    const setChainType = vi.spyOn(wallet, 'setChainType').mockResolvedValue(undefined)
-
-    await expect(wallet.setNetworkType(NetworkType.MAINNET)).resolves.toBeUndefined()
-
-    expect(setChainType).toHaveBeenCalledWith(ChainType.QBIT_MAINNET)
   })
 
   it('reconciles a selected mainnet chain without rebroadcasting a chain change', async () => {

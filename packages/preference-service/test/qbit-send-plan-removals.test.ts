@@ -7,6 +7,7 @@ import {
   RELEASES,
   readReleaseStorage,
 } from '../../../tests/fixtures/release-storage/release-storage'
+import { DROPPED_KEYS } from './dropped-keys'
 
 // The records a wallet removal keeps of the send plans it ends (#216), in
 // the preferences beside the pending reset mark: written before the removal
@@ -320,13 +321,15 @@ describe('the preference loader with removal records stored', () => {
 
     expect(service.getChainType()).toBe(dump.wallet.settings.chainType)
     expect(service.getLocale()).toBe(dump.wallet.settings.locale)
-    service.setCurrency('EUR')
+    service.setSkippedVersion('9.9.9')
     await service.persist()
 
     const after = storage.values['preference'] as Record<string, unknown>
     expect(after.qbitSendPlanRemovals).toEqual(records)
     for (const [key, value] of Object.entries(saved)) {
-      if (key !== 'currency' && key !== 'enableSignData') expect(after[key], key).toEqual(value)
+      if (key !== 'skippedVersion' && !DROPPED_KEYS.includes(key)) {
+        expect(after[key], key).toEqual(value)
+      }
     }
   })
 
