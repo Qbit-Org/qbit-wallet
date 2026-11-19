@@ -144,7 +144,11 @@ extension version and would leave a changeset pending on the branch it
 targets: the pull request that sets the version, and the release pull request
 that brings it to `main`. A pull request that leaves the version alone passes
 whatever `.changeset/` holds, and so does one that only lowers it, such as a
-revert of a release's preparation.
+revert of a release's preparation. A pull request into another branch that
+only brings it to the version `main` already has passes too: a back-merge
+from `main` into a release branch that is not prepared yet raises that
+branch's version, and the changesets the branch holds belong to its own
+release.
 
 If a changeset lands after the version was set, the release pull request
 fails the check. Run the command again with the same version: it leaves the

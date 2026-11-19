@@ -14,7 +14,7 @@ repository.
 - A release's package versions and changelogs are now applied in the pull
   request that sets its extension version, with
   `corepack pnpm release:prepare <x.y.z>`. A new required check,
-  `Package versions applied`, fails a pull request that changes the extension
+  `Package versions applied`, fails a pull request that sets a new extension
   version and leaves a changeset pending. The workflow that opened a
   "version packages" pull request after every push to `main` is removed.
 

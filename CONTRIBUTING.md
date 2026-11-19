@@ -146,7 +146,7 @@ any other pull request. See
   only when every job they gather passed: the four lanes that typecheck,
   test and build the extension in parallel, and the five G3 shards (see
   [`docs/ci-tree-pass-marker.md`](docs/ci-tree-pass-marker.md)). The last
-  fails a pull request that changes the extension version and leaves a
+  fails a pull request that sets a new extension version and leaves a
   changeset pending (see
   [`docs/package-release.md`](docs/package-release.md)). The other CI jobs,
   including `Lint` and `Dependency policy`, are not required, so reviewers

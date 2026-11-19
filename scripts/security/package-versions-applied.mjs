@@ -3,6 +3,7 @@ import { appendFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { VERSION_FILES, isHigher, versionParts } from './docs-only-change.mjs'
+import { API_TIMEOUT_MS, githubJson } from './tree-pass-marker.mjs'
 
 // The `Package versions applied` check. A release is prepared by setting the
 // extension version and applying the pending changesets in the same pull
@@ -19,7 +20,13 @@ import { VERSION_FILES, isHigher, versionParts } from './docs-only-change.mjs'
 //
 // A change that leaves the version alone passes whatever `.changeset/` holds.
 // So does one that only lowers it, as a revert of a release's preparation
-// does: that prepares no release, and it brings the changesets back. The
+// does: that prepares no release, and it brings the changesets back. And so
+// does one that brings a branch other than the default branch to the version
+// the default branch already has, as a back-merge into a release branch that
+// is not prepared yet does: that version's release has landed, and the
+// changesets the branch holds belong to the next one. Only for that question
+// does the check ask GitHub, for the default branch's version files, and only
+// when the change would otherwise fail. The
 // check reads only the commit, never the working tree, and needs the
 // commit's first parent in the checkout (a depth of 2). Whatever it cannot
 // read fails it: it never passes a change it could not judge.
@@ -156,10 +163,64 @@ export function judge({ cwd = process.cwd(), revision = 'HEAD' } = {}) {
     file: VERSION_FILES[first],
     from: before[first],
     to: after[first],
+    moved: moved.map(index => ({
+      file: VERSION_FILES[index],
+      from: before[index],
+      to: after[index],
+    })),
   }
   if (lowered) return { ok: true, ...change, lowered: true, pending: [] }
   const pending = pendingChangesets(head, cwd)
   return { ok: pending.length === 0, ...change, lowered: false, pending }
+}
+
+const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
+const BRANCH = /^(?!.*\.\.)[A-Za-z0-9._/-]+$/
+
+// Whether a change that fails only brings its branch to the version the
+// default branch already has: every version file it moved now holds exactly
+// the version that file has on the default branch. Then it prepares no
+// release, and the changesets it leaves belong to the branch's own release.
+//
+// False, with no request, where that cannot be: when the run is for the
+// default branch itself, a pull request into it or a push to it, and when the
+// workflow gave no default branch, as in a local run. Otherwise the answer
+// comes from GitHub, and a read that fails or cannot be understood throws: the
+// check then fails as one that could not judge, and running it again asks
+// again.
+export async function adoptsDefaultBranchVersion(verdict, env, { fetchImpl } = {}) {
+  const branch = env.PACKAGE_VERSIONS_DEFAULT_BRANCH
+  const target = env.GITHUB_BASE_REF || env.GITHUB_REF_NAME
+  if (!branch || !target || target === branch) return false
+  if (!BRANCH.test(branch)) {
+    throw new PackageVersionsError('PACKAGE_VERSIONS_DEFAULT_BRANCH is not a branch name')
+  }
+  if (!REPOSITORY.test(env.GITHUB_REPOSITORY ?? '')) {
+    throw new PackageVersionsError('GITHUB_REPOSITORY is not owner/name')
+  }
+  for (const { file, to } of verdict.moved) {
+    let version
+    try {
+      const body = await githubJson({
+        apiUrl: env.GITHUB_API_URL,
+        path: `/repos/${env.GITHUB_REPOSITORY}/contents/${file}?ref=${encodeURIComponent(branch)}`,
+        token: env.GH_TOKEN,
+        fetchImpl,
+        timeoutMs: API_TIMEOUT_MS,
+      })
+      if (body?.type !== 'file' || body.encoding !== 'base64' || typeof body.content !== 'string') {
+        throw new Error('GitHub did not answer with the file')
+      }
+      version = JSON.parse(Buffer.from(body.content, 'base64').toString('utf8'))?.version
+      if (typeof version !== 'string' || version === '') throw new Error('it has no version')
+    } catch (error) {
+      throw new PackageVersionsError(
+        `${file} on ${branch} could not be read (${oneLine(error.message)}); run this check again`
+      )
+    }
+    if (version !== to) return false
+  }
+  return true
 }
 
 // A value on one line: a file name can hold a newline, which would break the
@@ -190,6 +251,9 @@ export function report(verdict) {
   if (verdict.lowered) {
     return `The extension version goes back from ${oneLine(verdict.from)} to ${oneLine(verdict.to)}, which prepares no release, so pending changesets are not checked.`
   }
+  if (verdict.adopted) {
+    return `${change}, the version \`${oneLine(verdict.adopted)}\` already has, so the change prepares no release and the changesets it leaves pending are not checked.`
+  }
   if (verdict.ok) return `${change}, and no changeset is pending.`
   const count = verdict.pending.length
   const names = verdict.pending.slice(0, LISTED).map(oneLine).join(', ')
@@ -202,15 +266,21 @@ export function report(verdict) {
   )
 }
 
-export function run(env = process.env, { cwd = process.cwd(), log = console } = {}) {
-  const verdict = judge({ cwd })
+export async function run(
+  env = process.env,
+  { cwd = process.cwd(), log = console, fetchImpl } = {}
+) {
+  let verdict = judge({ cwd })
+  if (!verdict.ok && (await adoptsDefaultBranchVersion(verdict, env, { fetchImpl }))) {
+    verdict = { ...verdict, ok: true, adopted: env.PACKAGE_VERSIONS_DEFAULT_BRANCH }
+  }
   const text = report(verdict)
   log.log(annotation(verdict.ok ? 'notice' : 'error', text))
   summary(env, [`### ${TITLE}`, '', `- ${verdict.ok ? 'Passed' : 'Failed'}: ${text}`])
   return verdict
 }
 
-export function main(argv = process.argv.slice(2), env = process.env) {
+export async function main(argv = process.argv.slice(2), env = process.env) {
   if (argv.length > 0) throw new PackageVersionsError(`unexpected arguments: ${argv.join(' ')}`)
   return run(env)
 }
@@ -218,7 +288,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
 const scriptPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : ''
 if (import.meta.url === scriptPath) {
   try {
-    if (!main().ok) process.exitCode = 1
+    if (!(await main()).ok) process.exitCode = 1
   } catch (error) {
     console.log(annotation('error', `This check could not judge the change: ${error.message}`))
     process.exitCode = 1

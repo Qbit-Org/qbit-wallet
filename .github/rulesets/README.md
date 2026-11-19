@@ -60,8 +60,9 @@ a person prepares and which lands like any other
 ([`docs/package-release.md`](../../docs/package-release.md)).
 `Package versions applied`, from
 [`../workflows/ci.yml`](../workflows/ci.yml), fails a pull request that
-changes the extension version and would leave a changeset pending on the
-branch it targets. It judges the pull request against that branch's tip as
+sets a new extension version and would leave a changeset pending on the
+branch it targets. A back-merge, which brings a release branch the version
+`main` already has, passes. It judges the pull request against that branch's tip as
 it was at the pull request's last push, and the rulesets don't require a
 branch to be up to date: a changeset that reaches the target branch
 afterwards is not seen until the next push. Running `CI` again judges the

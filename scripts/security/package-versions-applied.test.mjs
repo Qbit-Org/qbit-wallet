@@ -10,10 +10,12 @@ import YAML from 'yaml'
 import { VERSION_FILES } from './docs-only-change.mjs'
 import {
   PackageVersionsError,
+  adoptsDefaultBranchVersion,
   isPendingChangeset,
   judge,
   pendingChangesets,
   report,
+  run,
 } from './package-versions-applied.mjs'
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
@@ -149,6 +151,7 @@ test('a version change with every changeset applied passes', t => {
     file: PACKAGE_JSON,
     from: '1.0.11',
     to: '1.0.12',
+    moved: VERSION_FILES.map(file => ({ file, from: '1.0.11', to: '1.0.12' })),
     lowered: false,
     pending: [],
   })
@@ -206,6 +209,7 @@ test('a change that only lowers the version passes, as a revert of a preparation
     file: PACKAGE_JSON,
     from: '1.0.12',
     to: '1.0.11',
+    moved: VERSION_FILES.map(file => ({ file, from: '1.0.12', to: '1.0.11' })),
     lowered: true,
     pending: [],
   })
@@ -361,6 +365,220 @@ test('pending changesets are read from the commit, not the working tree', t => {
   assert.deepEqual(pendingChangesets(commit, repo.dir), ['first.md'])
 })
 
+// --- A branch that takes the default branch's version -------------------------
+
+const RUN_ENV = {
+  GITHUB_API_URL: 'https://api.github.test',
+  GITHUB_REPOSITORY: 'Qbit-Org/qbit-wallet',
+  GH_TOKEN: 'token',
+  PACKAGE_VERSIONS_DEFAULT_BRANCH: 'main',
+  GITHUB_BASE_REF: 'release/1.0.13',
+}
+
+// GitHub's contents API for the default branch: each version file at `versions`
+// (one version for both, or one per file), or whatever `answer` returns.
+function fakeGitHub(versions, answer) {
+  const asked = []
+  const fetchImpl = async url => {
+    asked.push(url)
+    const file = VERSION_FILES.find(name => url.includes(`/contents/${name}?`))
+    const version = typeof versions === 'string' ? versions : versions?.[file]
+    const body = answer
+      ? answer(file)
+      : {
+          type: 'file',
+          encoding: 'base64',
+          content: Buffer.from(JSON.stringify({ name: 'x', version })).toString('base64'),
+        }
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => body }
+  }
+  return { fetchImpl, asked }
+}
+
+const silent = () => ({
+  fetchImpl: url => assert.fail(`no request, but ${url}`),
+  log: { log() {} },
+})
+
+// A release branch cut at 1.0.11 with a changeset of its own, and the merge
+// that brings it the default branch's 1.0.12.
+function backMerge(t) {
+  const repo = released(t)
+  repo.git('checkout', '-q', '-b', 'release')
+  repo.write('.changeset/next-release.md', CHANGESET)
+  const base = repo.commit('work for the next release')
+  repo.git('checkout', '-q', 'main')
+  repo.setVersion('1.0.12')
+  repo.remove('.changeset/first.md')
+  const head = repo.commit('release 1.0.12')
+  merged(repo, base, head)
+  return repo
+}
+
+test('a back-merge that brings a branch the default branch’s version passes', async t => {
+  const repo = backMerge(t)
+  // By its commits alone it raises the version and leaves a changeset.
+  const strict = judge({ cwd: repo.dir })
+  assert.equal(strict.ok, false)
+  assert.deepEqual(strict.pending, ['next-release.md'])
+
+  const github = fakeGitHub('1.0.12')
+  const logged = []
+  const verdict = await run(RUN_ENV, {
+    cwd: repo.dir,
+    fetchImpl: github.fetchImpl,
+    log: { log: text => logged.push(text) },
+  })
+  assert.equal(verdict.ok, true)
+  assert.equal(verdict.adopted, 'main')
+  assert.deepEqual(
+    github.asked,
+    VERSION_FILES.map(
+      file => `https://api.github.test/repos/Qbit-Org/qbit-wallet/contents/${file}?ref=main`
+    )
+  )
+  assert.match(
+    logged.join('\n'),
+    /^::notice title=Package versions applied::The extension version changes from 1\.0\.11 to 1\.0\.12, the version `main` already has, so the change prepares no release/
+  )
+})
+
+test('a version the default branch does not have yet is still a release', async t => {
+  const repo = backMerge(t)
+  for (const versions of [
+    '1.0.11',
+    '1.0.13',
+    // Only one of the two files at the version.
+    { [PACKAGE_JSON]: '1.0.12', [MANIFEST]: '1.0.11' },
+    { [PACKAGE_JSON]: '1.0.11', [MANIFEST]: '1.0.12' },
+  ]) {
+    const github = fakeGitHub(versions)
+    const verdict = await run(RUN_ENV, {
+      cwd: repo.dir,
+      fetchImpl: github.fetchImpl,
+      log: { log() {} },
+    })
+    assert.equal(verdict.ok, false, JSON.stringify(versions))
+    assert.equal(verdict.adopted, undefined)
+    assert.deepEqual(verdict.pending, ['next-release.md'])
+  }
+})
+
+test('the default branch itself, and a run the workflow did not wire, are judged as they stand', async t => {
+  const repo = backMerge(t)
+  for (const env of [
+    // A pull request into the default branch, and a push to it.
+    { ...RUN_ENV, GITHUB_BASE_REF: 'main' },
+    { ...RUN_ENV, GITHUB_BASE_REF: '', GITHUB_REF_NAME: 'main' },
+    // No default branch, or no branch the run is for, as in a local run.
+    { ...RUN_ENV, PACKAGE_VERSIONS_DEFAULT_BRANCH: '' },
+    { ...RUN_ENV, PACKAGE_VERSIONS_DEFAULT_BRANCH: undefined },
+    { ...RUN_ENV, GITHUB_BASE_REF: '' },
+    {},
+  ]) {
+    const verdict = await run(env, { cwd: repo.dir, ...silent() })
+    assert.equal(verdict.ok, false, JSON.stringify(env))
+    assert.equal(verdict.adopted, undefined)
+  }
+  // A push to another branch is for that branch.
+  const github = fakeGitHub('1.0.12')
+  const pushed = await run(
+    { ...RUN_ENV, GITHUB_BASE_REF: '', GITHUB_REF_NAME: 'release/1.0.13' },
+    { cwd: repo.dir, fetchImpl: github.fetchImpl, log: { log() {} } }
+  )
+  assert.equal(pushed.ok, true)
+})
+
+test('GitHub is asked only when the change would otherwise fail', async t => {
+  const unchanged = released(t)
+  unchanged.write('src/index.js', 'export {}\n')
+  unchanged.commit('a fix')
+  assert.equal((await run(RUN_ENV, { cwd: unchanged.dir, ...silent() })).ok, true)
+
+  const prepared = released(t)
+  prepared.setVersion('1.0.12')
+  prepared.remove('.changeset/first.md')
+  prepared.commit('prepare 1.0.12')
+  assert.equal((await run(RUN_ENV, { cwd: prepared.dir, ...silent() })).ok, true)
+
+  prepared.setVersion('1.0.11')
+  prepared.write('.changeset/first.md', CHANGESET)
+  prepared.commit('revert the preparation')
+  assert.equal((await run(RUN_ENV, { cwd: prepared.dir, ...silent() })).lowered, true)
+})
+
+test('a default branch that cannot be read is an error, never a pass', async t => {
+  const repo = backMerge(t)
+  const verdict = judge({ cwd: repo.dir })
+  const refused = async (env, fetchImpl, expected) =>
+    assert.rejects(
+      adoptsDefaultBranchVersion(verdict, env, { fetchImpl }),
+      error => error instanceof PackageVersionsError && expected.test(error.message),
+      String(expected)
+    )
+  const file = content => ({ type: 'file', encoding: 'base64', content })
+  const base64 = text => Buffer.from(text).toString('base64')
+  for (const answer of [
+    () => ({ type: 'dir' }),
+    () => [{ type: 'file' }],
+    () => null,
+    () => ({ type: 'file', encoding: 'none', content: '' }),
+    () => file(undefined),
+    () => file(base64('{ not json')),
+    () => file(base64('{"name":"x"}')),
+    () => file(base64('{"version":""}')),
+    () => file(base64('null')),
+  ]) {
+    await refused(
+      RUN_ENV,
+      fakeGitHub(undefined, answer).fetchImpl,
+      /package\.json on main could not be read \(.+\); run this check again$/
+    )
+  }
+  await refused(
+    RUN_ENV,
+    async () => ({ ok: false, status: 503, headers: { get: () => null }, json: async () => ({}) }),
+    /could not be read \(GET .* returned HTTP 503\); run this check again/
+  )
+  await refused(
+    RUN_ENV,
+    async () => {
+      throw new Error('socket\nhang up')
+    },
+    /could not be read \(socket hang up\); run this check again/
+  )
+  // What the workflow must give, when it gives a default branch at all.
+  const none = () => assert.fail('no request')
+  await refused({ ...RUN_ENV, GH_TOKEN: '' }, none, /GH_TOKEN is missing or empty/)
+  await refused({ ...RUN_ENV, GITHUB_API_URL: 'http://api.github.test' }, none, /GITHUB_API_URL/)
+  await refused(
+    { ...RUN_ENV, GITHUB_REPOSITORY: 'qbit-wallet' },
+    none,
+    /GITHUB_REPOSITORY is not owner\/name/
+  )
+  await refused(
+    { ...RUN_ENV, GITHUB_REPOSITORY: undefined },
+    none,
+    /GITHUB_REPOSITORY is not owner\/name/
+  )
+  for (const branch of ['main branch', 'a..b', 'main?x=1', 'main#']) {
+    await refused(
+      { ...RUN_ENV, PACKAGE_VERSIONS_DEFAULT_BRANCH: branch },
+      none,
+      /PACKAGE_VERSIONS_DEFAULT_BRANCH is not a branch name/
+    )
+  }
+  // The command fails then, as for anything else it cannot judge.
+  await assert.rejects(
+    run(RUN_ENV, {
+      cwd: repo.dir,
+      fetchImpl: fakeGitHub(undefined, () => null).fetchImpl,
+      log: { log() {} },
+    }),
+    PackageVersionsError
+  )
+})
+
 // --- The command --------------------------------------------------------------
 
 function runScript(cwd, t, args = []) {
@@ -453,6 +671,14 @@ test('ci.yml runs the check on every event, against the commit and its first par
   assert.match(checkout.uses, /^actions\/checkout@[0-9a-f]{40}$/)
   assert.deepEqual(checkout.with, { 'persist-credentials': false, 'fetch-depth': 2 })
   assert.equal(check.run, 'node scripts/security/package-versions-applied.mjs')
+  assert.deepEqual(check.env, {
+    GH_TOKEN: '${{ github.token }}',
+    PACKAGE_VERSIONS_DEFAULT_BRANCH: '${{ github.event.repository.default_branch }}',
+  })
+  assert.equal(checkout.env, undefined)
+  // The token only reads: the workflow gives it nothing more.
+  assert.deepEqual(workflow.permissions, { contents: 'read' })
+  assert.equal(job.permissions, undefined)
   for (const step of job.steps) {
     assert.equal(step.if, undefined, step.name)
     assert.ok(!Object.hasOwn(step, 'continue-on-error'), step.name)
