@@ -28,8 +28,10 @@ concurrency:
 #
 # Docs-only changes (docs/ci-docs-only.md): on a pull request that changes only
 # documentation that no skipped step reads, the same jobs skip their steps the
-# same way, with no marker involved, and nothing is saved. The same label makes
-# such a pull request run in full too.
+# same way, with no marker involved, and nothing is saved. In this workflow a
+# pull request that also sets the extension version, and changes nothing else,
+# counts as one too: no scenario depends on which version it is. The same label
+# makes such a pull request run in full too.
 #
 # Signed heads (docs/playwright-release-gate.md): a pull request lands as one
 # signed commit, so on a pull request whose head commit GitHub has not
@@ -131,12 +133,17 @@ jobs:
       # labels read now. It never touches the marker. Any doubt or error there
       # sets false, a full run, and leaves the step green; a wiring error fails
       # it, and with it this job, which also means a full run.
+      # DOCS_ONLY_VERSION_BUMP makes a change that only sets the extension
+      # version, in its two version files and with or without such
+      # documentation, count as well. Only this workflow sets it: the lanes of
+      # `Typecheck, test, and build` build and package under that version.
       - name: Check for a docs-only change
         id: docs-only
         env:
           GH_TOKEN: ${{ github.token }}
           TREE_PASS_PR_NUMBER: ${{ github.event.pull_request.number }}
           TREE_PASS_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DOCS_ONLY_VERSION_BUMP: 'true'
         run: node scripts/security/docs-only-change.mjs
 
       # Whether G3 waits for a signed head. It comes last and reads the
@@ -226,7 +233,7 @@ jobs:
             echo "This tree already passed this job in $MARKER_RUN_URL, so its steps are skipped." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
             echo 'skip=true' >> "$GITHUB_OUTPUT"
-            echo "This pull request changes only documentation that no skipped step reads, so its steps are skipped. Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
+            echo "This pull request changes only documentation that no skipped step reads, or only that and the extension version, so its steps are skipped. Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Checkout
@@ -375,7 +382,7 @@ jobs:
             echo "This tree already passed this job in $MARKER_RUN_URL, so the shards skipped their steps; this job still checks that every shard succeeded." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$MARKER_JOB_RESULT" = success ] && [ "$DOCS_ONLY" = true ]; then
             echo 'skip=true' >> "$GITHUB_OUTPUT"
-            echo "This pull request changes only documentation that no skipped step reads, so the shards skipped their steps; this job still checks that every shard succeeded. Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
+            echo "This pull request changes only documentation that no skipped step reads, or only that and the extension version, so the shards skipped their steps; this job still checks that every shard succeeded. Add the $TREE_PASS_FORCE_LABEL label and re-run all jobs to run everything." >> "$GITHUB_STEP_SUMMARY"
           elif [ "$MARKER_JOB_RESULT" = success ] && [ "$SIGNED_HEAD_WAIT" = true ]; then
             echo 'wait=true' >> "$GITHUB_OUTPUT"
             echo "GitHub has not verified the signature of this pull request's head commit, so G3 waits for a signed head and no shard started; this job checks that none did. To run G3, sign the head commit and push it, or add the $TREE_PASS_FORCE_LABEL label and re-run all jobs." >> "$GITHUB_STEP_SUMMARY"
