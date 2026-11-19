@@ -9,7 +9,8 @@ the extension and keyring-service, twice more on 2026-11-05, after the
 were removed, and on 2026-11-10 after `bitcoinjs-lib` moved to 6.1.8 for the
 critical `GHSA-8vv3-6qpc-gpw6`; on 2026-11-17 the high `picomatch` advisory
 `GHSA-fc5q-39xc-vjpf` was accepted with the evidence unchanged, and on
-2026-11-18 its exception was removed after GitHub withdrew the advisory. The SDK 0.1.2 audit and inventory were regenerated that day.)
+2026-11-18 its exception was removed after GitHub withdrew the advisory. The SDK 0.1.2 audit and inventory were regenerated that day, and again on
+2026-11-19 after `@qbit/wallet-core` dropped `@bitcoinerlab/secp256k1`.)
 
 Scope: the complete frozen pnpm workspace closure, including shipped extension
 runtime packages, extension build and packaging dependencies, test-only tooling,
@@ -27,18 +28,18 @@ policy, and lockfile that were executed.
 
 | Evidence | Value |
 | --- | --- |
-| Audited commit | `7a9cdf6d0920354fdc2598da4fd2cdfdaefbe90b` |
+| Audited commit | `b986c1bb6318a8687ef6c1dd4dc7b0c51f39e651` |
 | Comparison commit (`origin/release/1.0.5`) | `c3d0f3a3674f76e4a3ff1a8efa1865638c5b2909` |
 | Evidence-generation command | `corepack pnpm security:evidence` |
 | Audit command | `corepack pnpm audit --json` |
 | Frozen-install command | `corepack pnpm install --frozen-lockfile` |
-| `pnpm-lock.yaml` SHA-256 | `95261f601c03194eee23c280ee59220f19b418d085e9357bbe90b083d4e28c0d` |
-| [Raw audit output](./dependency-audit.json) SHA-256 | `16f1808be89b23ecb6f526050016b00d8059b2912203719772c1f3fc23ee9e77` |
-| [Package inventory](./dependency-inventory.json) SHA-256 | `2831f908b46be7b0998a5e02ce2eac03aefcf1c68e13d26eb021a866a500ad80` |
+| `pnpm-lock.yaml` SHA-256 | `077e499e5b29960bb85c2d1b57b98c306190103e6c98ad3f82d9629c6dba1745` |
+| [Raw audit output](./dependency-audit.json) SHA-256 | `c9c8a80cb6a7881c9997fc56ad8fd7b98c21ed801d59aebfce2f5d0f48496007` |
+| [Package inventory](./dependency-inventory.json) SHA-256 | `17d62f14cb7fbc0b1ea959c129ecf754c5fd9606b99d60b5b4885bb690dd47bb` |
 | Qbit SDK npm packages | `@qbit-oss/pqc` 0.1.1 and `@qbit-oss/protocol`, `@qbit-oss/api` 0.1.2, pinned in `scripts/security/sdk-package-pins.json` |
 
 The inventory is the package-by-package machine-readable record. It contains
-all 386 direct declarations, all 178 resolved packages classified as crypto-,
+all 385 direct declarations, all 177 resolved packages classified as crypto-,
 serialization-, networking-, or archive-adjacent, and every advisory with
 directness, dependency paths, delivery context, and reachability.
 
@@ -153,7 +154,8 @@ moderate, and 9 low.
 | Audited result `41ce38b` (2026-11-10, `bitcoinjs-lib` 6.1.8) | 0 | 0 | 32 | 10 | 42 |
 | Advisory-feed drift at unchanged-lock `release/1.0.10` `374f694` (2026-11-17, `picomatch` accepted) | 0 | 1 | 32 | 9 | 42 |
 | Advisory-feed drift at unchanged-lock `release/1.0.11` `15a5b64` (2026-11-18, `picomatch` advisory withdrawn) | 0 | 0 | 32 | 9 | 41 |
-| Current audited result `7a9cdf6` (2026-11-18, Qbit protocol and API 0.1.2) | 0 | 0 | 32 | 9 | 41 |
+| Audited result `7a9cdf6` (2026-11-18, Qbit protocol and API 0.1.2) | 0 | 0 | 32 | 9 | 41 |
+| Current audited result `b986c1b` (2026-11-19, `@bitcoinerlab/secp256k1` removed) | 0 | 0 | 32 | 9 | 41 |
 
 pnpm 8's metadata counted vulnerable dependency occurrences and pnpm 11's
 counts advisory records, one per record however many installed versions it
@@ -235,14 +237,14 @@ needs major-version moves rather than an override bump.
 
 ## Package inventory
 
-The 18 workspaces contain 2,080 registry lock entries and 386 direct dependency
-declarations. Lockfile v9 keeps one entry per name@version; its 2,231 peer
+The 18 workspaces contain 2,079 registry lock entries and 385 direct dependency
+declarations. Lockfile v9 keeps one entry per name@version; its 2,230 peer
 variants are snapshots. Direct declarations are classified by how they enter
 the product or engineering process:
 
 | Delivery classification | Direct declarations | Meaning |
 | --- | ---: | --- |
-| Shipped runtime | 138 | Code or assets included in, or invoked by, the extension runtime |
+| Shipped runtime | 137 | Code or assets included in, or invoked by, the extension runtime |
 | Extension build/packaging | 70 | Compilers, loaders, bundlers, service-worker tooling, and packaging inputs |
 | Test-only tooling | 33 | Unit, browser, fixture, and conformance test dependencies |
 | Development/quality tooling | 123 | Lint, formatting, repository tooling, and non-release developer commands |
@@ -259,7 +261,7 @@ package may also serialize attacker-controlled data.
 
 | Security-adjacent category | Resolved package/version records |
 | --- | ---: |
-| Crypto | 57 |
+| Crypto | 56 |
 | Serialization | 91 |
 | Networking | 25 |
 | Archive/compression | 8 |
@@ -533,10 +535,10 @@ unused-variable, and `chrome` global rules from `.eslintrc.shared.cjs`.
 - any unexplained package addition, removal, version/license-expression change,
   or unknown-license-file hash change against the exact full-closure baseline.
 
-The audited policy checked 2,080 integrity-pinned registry entries, 386
+The audited policy checked 2,079 integrity-pinned registry entries, 385
 dependency specifiers (the 49 overrides are now audited in
 `pnpm-workspace.yaml`), 32 Action references, two tracked package-manager
-configuration files, 256 executable package/workflow commands, and 2,080 exact
+configuration files, 256 executable package/workflow commands, and 2,079 exact
 package/version license records. The browser smoke-test installer is an exact
 direct dependency and installs `chrome@148.0.7778.97`; it no longer downloads
 mutable `stable` through `pnpm dlx`. Tracked-file discovery recurses into any
@@ -551,10 +553,10 @@ commit and audit bytes.
 ## License baseline
 
 `scripts/security/dependency-license-baseline.json` records the package,
-version, and normalized license expression for all 2,080 distinct identities
+version, and normalized license expression for all 2,079 distinct identities
 in the complete lockfile closure, including parallel versions and
 platform-specific optional packages. The baseline is bound to the exact
-`pnpm-lock.yaml` SHA-256, while every one of the 2,080 registry entries must retain
+`pnpm-lock.yaml` SHA-256, while every one of the 2,079 registry entries must retain
 SHA-512 registry integrity. Package additions, removals, version changes, and
 any lockfile change therefore fail CI until the license review is deliberately
 updated.
@@ -597,7 +599,11 @@ brought in, among them `antd@4.20.4`, `moment@2.30.1`, `dayjs@1.11.18`,
 leaving 2,080. The 2026-11-10 refresh onboarded `bitcoinjs-lib@6.1.8` through
 the pending-review flow, verified MIT against its installed manifest and its
 license file, which is byte-identical to 6.1.6's, and dropped the superseded
-`bitcoinjs-lib@6.1.6`, leaving 2,080.
+`bitcoinjs-lib@6.1.6`, leaving 2,080. Removing `@bitcoinerlab/secp256k1` from
+`@qbit/wallet-core` on 2026-11-19 dropped `@bitcoinerlab/secp256k1@1.0.5`
+(MIT) and onboarded none, leaving 2,079. Its two dependencies stay:
+`@qbit/wallet-core` declares `@noble/secp256k1@1.7.2` and
+`@noble/hashes@1.8.0` itself.
 
 Lockfile changes are onboarded with
 `corepack pnpm security:dependencies -- --write-license-baseline`. The command
