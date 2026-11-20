@@ -17,7 +17,6 @@ import { SendPlansNotEndedNotice } from './components/SendPlansNotEndedNotice';
 import { StartupErrorScreen } from './components/StartupErrorScreen';
 import { WalletResetNotice } from './components/WalletResetNotice';
 import AsyncMainRoute from './pages/MainRoute';
-import { DeviceProvider } from './providers/DeviceProvider';
 import { I18nProvider } from './providers/I18nProvider';
 import { ThemeProvider } from './providers/ThemeProvider';
 import { ToolsProvider } from './providers/ToolsProvider';
@@ -130,23 +129,21 @@ function renderApp() {
     <Provider store={store}>
       <WalletProvider wallet={wallet as any}>
         <ThemeProvider>
-          <DeviceProvider>
-            <I18nProvider>
-              <ToolsProvider>
-                <AppDimensions>
-                  <IdleTimerProvider
-                    onAction={() => {
-                      noteWalletActivity(wallet as Parameters<typeof noteWalletActivity>[0]);
-                    }}>
-                    <AccountUpdater />
-                    <WalletResetNotice />
-                    <SendPlansNotEndedNotice />
-                    <AsyncMainRoute />
-                  </IdleTimerProvider>
-                </AppDimensions>
-              </ToolsProvider>
-            </I18nProvider>
-          </DeviceProvider>
+          <I18nProvider>
+            <ToolsProvider>
+              <AppDimensions>
+                <IdleTimerProvider
+                  onAction={() => {
+                    noteWalletActivity(wallet as Parameters<typeof noteWalletActivity>[0]);
+                  }}>
+                  <AccountUpdater />
+                  <WalletResetNotice />
+                  <SendPlansNotEndedNotice />
+                  <AsyncMainRoute />
+                </IdleTimerProvider>
+              </AppDimensions>
+            </ToolsProvider>
+          </I18nProvider>
         </ThemeProvider>
       </WalletProvider>
     </Provider>

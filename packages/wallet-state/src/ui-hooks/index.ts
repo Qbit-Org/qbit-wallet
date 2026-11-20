@@ -1,6 +1,5 @@
 export { useAddressTypeScreenLogic } from './useAddressTypeScreenLogic'
 export { useAddressTypeSettingLogic, type AddressTypeSetting } from './useAddressTypeSettingLogic'
-export { useAmountInputLogic } from './useAmountInputLogic'
 export { useFeeRateBarLogic } from './useFeeRateBarLogic'
 export { useLockTimePageLogic } from './useLockTimePageLogic'
 export { useSecurityCardLogic } from './useSecurityCardLogic'

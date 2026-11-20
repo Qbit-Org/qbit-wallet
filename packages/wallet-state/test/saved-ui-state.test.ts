@@ -7,7 +7,6 @@ import { accountActions } from '../src/reducers/accounts'
 import { globalActions } from '../src/reducers/global'
 import { settingsActions } from '../src/reducers/settings'
 import { initialState, uiActions } from '../src/reducers/ui'
-import { NavigationSource } from '../src/types'
 
 // Where the ui state's saved part has always been kept: preferences saved by
 // earlier builds load from here.
@@ -59,14 +58,10 @@ function fillSendForm(store: ReturnType<typeof createAppStore>): void {
     uiActions.updateFeeRateBar({
       feeRate: 3.5,
       feeRateInputVal: '3.5',
-      enableLowFeeRate: true,
       feeOptionIndex: 3,
       showCustomInput: true,
     })
   )
-  store.dispatch(uiActions.updateAddressInput({ address: TYPED_ADDRESS }))
-  store.dispatch(uiActions.updateAmountInput({ amount: '1.25' }))
-  store.dispatch(uiActions.setNavigationSource(NavigationSource.BACK))
 }
 
 const DRAFT_TEXTS = [RECIPIENT, TYPED_ADDRESS, MEMO, '0.5', '3.5', '1.25']
@@ -131,15 +126,10 @@ describe('what a wallet page saves', () => {
     expect(Object.keys(uiActions).sort()).toEqual(
       [
         'reset',
-        'resetAddressInput',
-        'resetAmountInput',
         'resetFeeRateBar',
         'resetTxCreateScreen',
         'setBalanceDetailOpen',
         'setBalanceHidden',
-        'setNavigationSource',
-        'updateAddressInput',
-        'updateAmountInput',
         'updateFeeRateBar',
         'updateTxCreateScreen',
       ].sort()
@@ -165,12 +155,7 @@ describe('what a wallet page saves', () => {
     expectNoDraftStored()
 
     // The resets, and a preference changed after them: still only the two.
-    for (const reset of [
-      uiActions.resetTxCreateScreen(),
-      uiActions.resetFeeRateBar(),
-      uiActions.resetAddressInput(),
-      uiActions.resetAmountInput(),
-    ]) {
+    for (const reset of [uiActions.resetTxCreateScreen(), uiActions.resetFeeRateBar()]) {
       fillSendForm(store)
       store.dispatch(reset)
     }
@@ -376,6 +361,48 @@ describe('a ui state saved by an earlier build, with a send form in it', () => {
       isBalanceHidden: true,
       balanceDetailOpen: true,
     })
+  })
+
+  it('loads without the fields this build removed, and saves none of them back', () => {
+    // The address and amount inputs, the navigation source and the fee bar's
+    // low-fee flag: 1.0.5 to 1.0.8 saved them, and this build has none of them.
+    const REMOVED = ['addressInput', 'amountInput', 'navigationSource']
+    const expectNoneRemoved = (ui: typeof initialState) => {
+      for (const field of REMOVED) expect(ui, field).not.toHaveProperty(field)
+      expect(ui.feeRateBar).not.toHaveProperty('enableLowFeeRate')
+    }
+    localStorage.setItem(
+      SAVED_UI_KEY,
+      savedByEarlierBuild({ isBalanceHidden: true, balanceDetailOpen: true })
+    )
+    expect(savedValue()).toMatchObject({
+      addressInput: { address: TYPED_ADDRESS },
+      amountInput: { amount: '1.25' },
+      navigationSource: 1,
+      feeRateBar: { enableLowFeeRate: false },
+    })
+
+    const store = createAppStore()
+
+    // The preferences carry over; the form, the fee bar and the rest start
+    // at their initial values.
+    expectNoneRemoved(store.getState().ui)
+    expect(store.getState().ui).toEqual({
+      ...initialState,
+      isBalanceHidden: true,
+      balanceDetailOpen: true,
+    })
+
+    // The page works on, and saves its preferences: none of the fields.
+    fillSendForm(store)
+    store.dispatch(uiActions.setBalanceHidden(false))
+    vi.advanceTimersByTime(SAVE_DELAY_MS)
+    expect(savedValue()).toEqual({ isBalanceHidden: false, balanceDetailOpen: true })
+    expectNoDraftStored()
+    expectNoneRemoved(store.getState().ui)
+
+    // Nor does the next page load bring them back.
+    expectNoneRemoved(createAppStore().getState().ui)
   })
 
   it('is replaced with the preferences alone before any timer runs', () => {

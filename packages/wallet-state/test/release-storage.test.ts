@@ -262,6 +262,33 @@ describe.each(LEFT_BY)('the ui state saved by %s', (_, leftByRelease) => {
     }
   })
 
+  it('loads, and saves back, none of the fields this build removed', () => {
+    const left = leftByRelease()
+    const stored = JSON.parse(left.items[SAVED_UI_KEY]!)
+    // Up to 1.0.8 a release saved them with its whole ui state.
+    if (savedWholeUi(left.release)) {
+      expect(stored).toHaveProperty('addressInput')
+      expect(stored).toHaveProperty('amountInput')
+      expect(stored).toHaveProperty('navigationSource')
+      expect(stored).toHaveProperty('feeRateBar.enableLowFeeRate')
+    }
+    const expectNoneRemoved = (ui: typeof initialState) => {
+      for (const field of ['addressInput', 'amountInput', 'navigationSource']) {
+        expect(ui, field).not.toHaveProperty(field)
+      }
+      expect(ui.feeRateBar).not.toHaveProperty('enableLowFeeRate')
+    }
+
+    const store = loadStore(left)
+    expectNoneRemoved(store.getState().ui)
+    store.dispatch(uiActions.setBalanceHidden(false))
+    vi.runOnlyPendingTimers()
+
+    const saved = localStorage.getItem(SAVED_UI_KEY)!
+    expect(JSON.parse(saved)).toEqual({ isBalanceHidden: false, balanceDetailOpen: false })
+    expectNoneRemoved(createAppStore().getState().ui)
+  })
+
   it('loads with every field this build reads', () => {
     const { ui } = loadStore(leftByRelease()).getState()
 
@@ -274,15 +301,11 @@ describe.each(LEFT_BY)('the ui state saved by %s', (_, leftByRelease) => {
   it('takes every ui change after loading, and saves only the preferences', () => {
     const store = loadStore(leftByRelease())
 
-    store.dispatch(uiActions.updateAddressInput({ address: 'tq1typed' }))
-    store.dispatch(uiActions.updateAmountInput({ amount: '1.5' }))
     store.dispatch(uiActions.updateTxCreateScreen({ inputAmount: '2', memo: 'after update' }))
     store.dispatch(uiActions.updateFeeRateBar({ feeRate: 9, feeOptionIndex: 2 }))
     store.dispatch(uiActions.setBalanceHidden(false))
 
     expect(store.getState().ui).toMatchObject({
-      addressInput: { address: 'tq1typed' },
-      amountInput: { amount: '1.5' },
       uiTxCreateScreen: { inputAmount: '2', memo: 'after update' },
       feeRateBar: { feeRate: 9, feeOptionIndex: 2, feeRateSource: null },
       isBalanceHidden: false,

@@ -1,18 +1,13 @@
 import { createAction, createSlice, Slice } from '@reduxjs/toolkit'
 import {
   Account,
-  AddressSummary,
   QbitBalanceSummary,
   TxHistoryItem,
   isCompleteQbitBalance,
 } from '@qbit/wallet-shared'
 import { ChainType } from '@qbit/wallet-types'
 
-import { resetWalletState, updateVersion } from '../actions/global'
-
-export interface Molels {
-  states: boolean
-}
+import { resetWalletState } from '../actions/global'
 
 /**
  * An account's total as the account switcher last showed it on one network,
@@ -609,7 +604,6 @@ function storeBalanceKept(
 export interface AccountsState {
   accounts: Account[]
   current: Account
-  loading: boolean
   balanceV2Map: {
     [key: string]: QbitBalanceSummary
   }
@@ -675,8 +669,6 @@ export interface AccountsState {
       error?: boolean
     }
   }
-  addressSummary: AddressSummary
-  model: Molels
   /**
    * The account switcher's totals, per network and then per address, from
    * the background's answers (`storeAccountTotals`). Like the rest of this
@@ -737,20 +729,11 @@ const initialAccount = {
 export const initialState: AccountsState = {
   accounts: [],
   current: initialAccount,
-  loading: false,
   balanceV2Map: {},
   balanceStatusMap: {},
   balanceReadMap: {},
   balanceKeptMap: {},
   historyMap: {},
-  addressSummary: {
-    totalSatoshis: 0,
-    spendableSatoshis: 0,
-    loading: true,
-    address: '',
-  },
-
-  model: { states: false },
   accountTotalsMap: {},
   accountTotalsAsked: 0,
   accountTotalsFloor: 0,
@@ -760,9 +743,6 @@ const slice: Slice<AccountsState> = createSlice({
   name: 'accounts',
   initialState,
   reducers: {
-    pendingLogin(state) {
-      state.loading = true
-    },
     setCurrent(state, action: { payload: Account }) {
       const { payload } = action
       state.current = payload || initialAccount
@@ -888,9 +868,6 @@ const slice: Slice<AccountsState> = createSlice({
       })
       recordBalanceFailure(state, address, requestId)
     },
-    setAddressSummary(state, action: { payload: any }) {
-      state.addressSummary = action.payload
-    },
     setHistory(
       state,
       action: {
@@ -931,20 +908,6 @@ const slice: Slice<AccountsState> = createSlice({
       }
       state.historyMap[address].error = true
     },
-    expireHistory(state, action: { payload?: string }) {
-      const history = state.historyMap[action.payload ?? state.current.address]
-      if (history) {
-        history.expired = true
-      }
-    },
-    setCurrentAccountName(state, action: { payload: string }) {
-      const { payload } = action
-      state.current.alianName = payload
-      const account = state.accounts.find(v => v.address === state.current.address)
-      if (account) {
-        account.alianName = payload
-      }
-    },
     setCurrentAddressFlag(state, action: { payload: number }) {
       const { payload } = action
       state.current.flag = payload
@@ -952,9 +915,6 @@ const slice: Slice<AccountsState> = createSlice({
       if (account) {
         account.flag = payload
       }
-    },
-    rejectLogin(state) {
-      state.loading = false
     },
     reset(state) {
       return resetAccounts(state)
@@ -977,45 +937,6 @@ const slice: Slice<AccountsState> = createSlice({
     },
   },
   extraReducers: builder => {
-    builder.addCase(updateVersion, state => {
-      // todo
-      if (!state.addressSummary) {
-        state.addressSummary = {
-          totalSatoshis: 0,
-          spendableSatoshis: 0,
-          loading: true,
-          address: '',
-        }
-      }
-
-      if (!state.balanceV2Map) {
-        state.balanceV2Map = {}
-      }
-
-      if (!state.balanceStatusMap) {
-        state.balanceStatusMap = {}
-      }
-
-      if (!state.balanceReadMap) {
-        state.balanceReadMap = {}
-      }
-
-      if (!state.balanceKeptMap) {
-        state.balanceKeptMap = {}
-      }
-
-      if (!state.accountTotalsMap) {
-        state.accountTotalsMap = {}
-      }
-
-      if (typeof state.accountTotalsAsked !== 'number') {
-        state.accountTotalsAsked = 0
-      }
-
-      if (typeof state.accountTotalsFloor !== 'number') {
-        state.accountTotalsFloor = 0
-      }
-    })
     builder.addCase(balanceReadStarted, (state, action) => {
       storeBalanceReadStarted(state, action.payload)
     })
