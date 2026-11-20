@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "auditedCommit": "b986c1bb6318a8687ef6c1dd4dc7b0c51f39e651",
-  "lockfileSha256": "077e499e5b29960bb85c2d1b57b98c306190103e6c98ad3f82d9629c6dba1745",
+  "auditedCommit": "7ee90e9ab4755fab9d6eada7795bca370eb79d95",
+  "lockfileSha256": "49d170ada58f0419a29181e94a8cd557283fc683c2fae46323c787d9642843dc",
   "auditOutput": {
     "file": "docs/security/dependency-audit.json",
-    "sha256": "c9c8a80cb6a7881c9997fc56ad8fd7b98c21ed801d59aebfce2f5d0f48496007",
+    "sha256": "5f3060f2ea33707fea7e38f83b5195edd79318e54c61e414cec5142d474a63c6",
     "command": "corepack pnpm audit --json"
   },
   "classificationMethod": {
@@ -14,12 +14,12 @@
   },
   "summary": {
     "workspaces": 18,
-    "registryLockEntries": 2079,
-    "directDeclarations": 385,
+    "registryLockEntries": 2064,
+    "directDeclarations": 382,
     "directDeclarationsByDelivery": {
       "development-quality-tooling": 123,
       "extension-build-packaging": 70,
-      "shipped-runtime": 137,
+      "shipped-runtime": 134,
       "test-only-tooling": 33,
       "workspace-contract": 22
     },
@@ -33,24 +33,24 @@
     "auditVulnerableOccurrences": {
       "info": 0,
       "low": 9,
-      "moderate": 32,
+      "moderate": 33,
       "high": 0,
       "critical": 0
     },
-    "advisoryRecords": 41,
+    "advisoryRecords": 42,
     "advisoryRecordsBySeverity": {
       "low": 9,
-      "moderate": 32
+      "moderate": 33
     },
     "advisoryRecordsByDirectness": {
-      "direct": 4,
+      "direct": 5,
       "transitive": 37
     },
     "advisoryPathsByReachability": {
-      "development-tooling-path": 530,
+      "development-tooling-path": 531,
       "extension-build-path": 984,
       "test-only-path": 548,
-      "reachable": 30
+      "reachable": 31
     }
   },
   "directDependencies": [
@@ -2253,36 +2253,6 @@
       "section": "dependencies",
       "requested": "^1.9.2",
       "resolved": "1.9.2(react-redux@8.0.5(@types/react-dom@18.2.17)(@types/react@18.2.17)(react-dom@18.2.0(react@18.2.0))(react@18.2.0)(redux@4.2.1))(react@18.2.0)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "@unisat/animated-qr",
-      "section": "dependencies",
-      "requested": "1.0.1",
-      "resolved": "1.0.1(react@18.2.0)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "@zxing/browser",
-      "section": "dependencies",
-      "requested": "^0.1.5",
-      "resolved": "0.1.5(@zxing/library@0.21.2)",
-      "delivery": "shipped-runtime",
-      "securityAdjacency": []
-    },
-    {
-      "workspace": "apps/extension",
-      "workspacePackage": "qbit-extension",
-      "package": "@zxing/library",
-      "section": "dependencies",
-      "requested": "^0.21.2",
-      "resolved": "0.21.2",
       "delivery": "shipped-runtime",
       "securityAdjacency": []
     },
@@ -11205,6 +11175,49 @@
           "directDelivery": "development-quality-tooling",
           "reachability": "development-tooling-path",
           "pathCount": 2
+        }
+      ]
+    },
+    {
+      "advisory": "GHSA-hj9c-qx2w-g7mh",
+      "package": "tiny-secp256k1",
+      "title": "tiny-secp256k1: Stale buffer after ignored wasm failure accepts invalid infinity tweak",
+      "severity": "moderate",
+      "url": "https://github.com/advisories/GHSA-hj9c-qx2w-g7mh",
+      "vulnerableVersions": [
+        "2.2.3"
+      ],
+      "directness": "direct",
+      "reachability": [
+        "development-tooling-path",
+        "reachable"
+      ],
+      "productionClosure": [
+        {
+          "vulnerableVersion": "2.2.3",
+          "path": "apps/extension > @qbit/wallet-core > tiny-secp256k1@2.2.3"
+        }
+      ],
+      "acceptedException": null,
+      "findingPathCount": 2,
+      "pathContexts": [
+        {
+          "workspace": ".",
+          "vulnerableVersion": "2.2.3",
+          "directPackage": "tiny-secp256k1",
+          "directVersion": "2.2.3",
+          "directDelivery": "development-quality-tooling",
+          "reachability": "development-tooling-path",
+          "pathCount": 1
+        },
+        {
+          "workspace": "packages/wallet-core",
+          "vulnerableVersion": "2.2.3",
+          "directPackage": "tiny-secp256k1",
+          "directVersion": "2.2.3",
+          "directDelivery": "shipped-runtime",
+          "reachability": "reachable",
+          "pathCount": 1
         }
       ]
     },
