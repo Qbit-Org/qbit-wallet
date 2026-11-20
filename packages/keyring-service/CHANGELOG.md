@@ -1,5 +1,35 @@
 # @qbit/keyring-service
 
+## 2.1.0
+
+### Minor Changes
+
+- 44e0ee3: `KeyringService.hasPersistedVault()` answers whether storage holds a vault, which is what the next start reads, where `hasVault()` answers from memory. A reset stores the erased state before it changes memory, so a reset that fails between the two leaves memory holding a vault that storage no longer has; the send plans ask storage after such a reset (#206).
+
+### Patch Changes
+
+- c278cd8: Sign a provider PSBT whose outputs exceed its inputs, a draft other inputs can complete later, when every input the account signs names SIGHASH_ALL|ANYONECANPAY (0x81) or SIGHASH_SINGLE|ANYONECANPAY (0x83). Such a draft is refused before approval and before any signature counter moves when an input the account signs uses the default type, when the account's signer is not in this wallet, or when `autoFinalized` is `true`; with `autoFinalized` omitted or `false` it comes back signed and never finalized. `p2mrSigningOptionsFor` adds `allowOutputsAboveInputs` only when every key names 0x81 or 0x83, and the keyring service reads the PSBT with that option for its size floor, spent outputs and cache keys. The provider still verifies every returned signature, reading the draft with the plan's option. Local signing refuses such bytes unless they are a website's, admitted for its open approval and prepared to come back unfinalized, and finalizing, extracting or broadcasting one is still refused. `DecodedPsbt.fundingShortfall` and `PsbtLocalInfo.fundingShortfall` report the gap for the outputs currently shown, excluding any network fee, when every input's value is known; such a PSBT is not completed and has no fee. `summarizeQbitPsbtSpend` takes `fundingShortfall` and then reports `netSpend` without judging a fee.
+- 96fd314: Sign a provider PSBT input under the sighash type its `PSBT_IN_SIGHASH_TYPE` names, when that type is 0x81 or 0x83. The approval shows each input signed on its own and what the signature locks in (every output for 0x81, one output for 0x83), and no longer counts as the wallet's change or receipts the outputs a 0x83 signature leaves open, nor, under 0x81, any output a 0x83 signature of the same request does not lock in: another approval's input can pay for it. A partial type is signed only for an input that spends the account's own output. A recovery migration still signs only under the default type, every other type is still refused, and an input that names none still signs with the default. An address row flagged `warning` no longer counts as a recipient the wallet named.
+- c278cd8: Update the protocol SDK to 0.1.2 in its wallet consumers and the companion API to 0.1.2 in the background service.
+- fa23068: Remove `KeyringService` methods nothing calls: `getMemStore`, `getKeyringByType`, `unlockKeyrings`, `restoreKeyring` (`_restoreKeyring` stays), `getAllVisibleAccountsArray`, `getAllPubkeys`, `hasPubkey` and `clearKeyrings`.
+- Updated dependencies [9231628]
+- Updated dependencies [26065a5]
+- Updated dependencies [041fbaf]
+- Updated dependencies [5df0946]
+- Updated dependencies [c278cd8]
+- Updated dependencies [96fd314]
+- Updated dependencies [c278cd8]
+- Updated dependencies [d6e03ce]
+- Updated dependencies [5b98b06]
+- Updated dependencies [44e0ee3]
+- Updated dependencies [d33eca0]
+- Updated dependencies [4ff73ed]
+- Updated dependencies [fa23068]
+- Updated dependencies [22a64e1]
+  - @qbit/wallet-shared@4.0.0
+  - @qbit/wallet-core@1.1.8
+  - @qbit/wallet-storage@0.3.3
+
 ## 2.0.0
 
 ### Major Changes

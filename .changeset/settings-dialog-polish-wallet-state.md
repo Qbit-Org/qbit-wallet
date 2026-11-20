@@ -1,5 +1,0 @@
----
-'@qbit/wallet-state': minor
----
-
-Settings and dialog polish. `useAddressTypeSettingLogic` treats the path a Qbit wallet derives on for its network as standard (m/87'/1'/0'/0 on Testnet4 and Regtest), so Address Type opens there instead of showing the custom-HD-path tip. `useAddressTypeScreenLogic` shows the P2MR type with the path used on the wallet's network, and a wallet with one fixed type (Qbit, watch, cold) with the current account's own address and its balance; it reads the addresses and balances again when the network changes, for every kind of wallet. `useLockTimePageLogic` takes the way the page leaves (`leave`, default `nav.goBack`), leaves once after a save, returns `goBack`, and clears its timer on Back and on unmount. Adds `walletErrorMessage(error, fallback)`, the text a page shows for a failed wallet call: the rejection's message, else a string rejection itself, else the fallback; `useSignPsbtLogic` and `useCreateWalletLogicImportWordsStep` toast that text instead of the rejection object.

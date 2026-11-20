@@ -1,7 +1,0 @@
----
-'@qbit/wallet-background': patch
-'@qbit/keyring-service': patch
-'@qbit/wallet-shared': patch
----
-
-Sign a provider PSBT whose outputs exceed its inputs, a draft other inputs can complete later, when every input the account signs names SIGHASH_ALL|ANYONECANPAY (0x81) or SIGHASH_SINGLE|ANYONECANPAY (0x83). Such a draft is refused before approval and before any signature counter moves when an input the account signs uses the default type, when the account's signer is not in this wallet, or when `autoFinalized` is `true`; with `autoFinalized` omitted or `false` it comes back signed and never finalized. `p2mrSigningOptionsFor` adds `allowOutputsAboveInputs` only when every key names 0x81 or 0x83, and the keyring service reads the PSBT with that option for its size floor, spent outputs and cache keys. The provider still verifies every returned signature, reading the draft with the plan's option. Local signing refuses such bytes unless they are a website's, admitted for its open approval and prepared to come back unfinalized, and finalizing, extracting or broadcasting one is still refused. `DecodedPsbt.fundingShortfall` and `PsbtLocalInfo.fundingShortfall` report the gap for the outputs currently shown, excluding any network fee, when every input's value is known; such a PSBT is not completed and has no fee. `summarizeQbitPsbtSpend` takes `fundingShortfall` and then reports `netSpend` without judging a fee.
