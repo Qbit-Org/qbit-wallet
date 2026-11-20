@@ -7,8 +7,64 @@ repository.
 
 ## 1.0.12
 
+### Websites and approvals
+
+- A website can now have the wallet sign a PSBT whose inputs do not yet
+  cover its outputs, for another participant to fund later (#242). It asks
+  through `signPsbt` or `signPsbts`, as before. Before, the wallet refused
+  such a PSBT. It is signed only when every input the account signs names
+  `SIGHASH_ALL | ANYONECANPAY` (0x81) or `SIGHASH_SINGLE | ANYONECANPAY`
+  (0x83), the two types 1.0.10 began to sign: either signature covers its
+  own input only, so the inputs that pay for the rest can be added after
+  it. The rules 1.0.10 set for those two types still apply. A marketplace
+  listing of one input priced above that input's value, which 1.0.10
+  refused, no longer needs placeholder inputs.
+- Such a PSBT is refused, before the approval opens and before a signature
+  is used, when an input the account signs names another type or none, when
+  the account is one of a read-only wallet, whose keys are not in this
+  wallet, or when the website asks for `autoFinalized: true`. The wallet
+  returns it signed and not finalized, and never finalizes or broadcasts
+  one.
+- The approval shows "Shortfall for the outputs shown" with the amount by
+  which the inputs fall short, and says "This transaction's inputs do not
+  cover the outputs shown, and your signature locks in only part of it. The
+  shortfall is the gap for the outputs currently shown, excluding any
+  network fee. Before it can be broadcast, inputs can be added, and outputs
+  your signature does not lock in can change or be removed, so a different
+  amount may complete it. Signing does not guarantee that it is ever
+  completed or that you are paid." A "Funding" section repeats the
+  shortfall with its exact number of bits and, in place of a network fee,
+  says "Not included in the shortfall: the transaction has no fee until its
+  inputs cover its outputs". Where the approval says whether the signed
+  PSBT is finalized, it reads "Signed, not finalized: it cannot be
+  finalized or broadcast until its inputs cover its outputs". In a batch,
+  the row of each such PSBT shows its shortfall.
+
 ### Repository and release
 
+- The extension version is 1.0.12.
+- The Qbit libraries the wallet builds on, `@qbit-oss/protocol` and
+  `@qbit-oss/api`, move from 0.1.1 to 0.1.2 (#242).
+- Code that came with the wallet this one was forked from, and that no
+  release could use, is removed. The wallet works as before. Removed are a
+  "UTXO" button on the home screen that was never shown, with a "More" row
+  that needed more buttons than the home screen has (#252); a second
+  secp256k1 library, `@bitcoinerlab/secp256k1`, which every start loaded
+  and only React Native, where the extension never runs, would have used
+  (#253); the screens that paired an offline signer and signed with it
+  through QR codes and the camera, which no screen led to and no Qbit
+  signer can use, with the libraries `@zxing/library`, `@zxing/browser` and
+  `@unisat/animated-qr` (#254); screen state and helpers that no screen
+  used (#255); and settings and background methods that no page could call
+  (#256).
+- With that code, the lockfile loses 16 packages and gains none, and each
+  language loses 31 unused translation strings. The store ZIP is 1,686,722
+  bytes, against 1,828,793 in 1.0.11.
+- No release from 1.0.5 on could create a cold wallet. Stored data that
+  holds one all the same still unlocks and still lists it, and its accounts
+  cannot send or sign, as before.
+- On its first start, 1.0.12 drops twelve settings that nothing read from
+  the stored preferences. Every other stored value is kept as it is.
 - A pull request that only sets the extension version, with or without
   documentation, no longer runs the browser scenarios.
 - A release's package versions and changelogs are now applied in the pull
@@ -17,6 +73,21 @@ repository.
   `Package versions applied`, fails a pull request that sets a new extension
   version and leaves a changeset pending. The workflow that opened a
   "version packages" pull request after every push to `main` is removed.
+  Such a pull request changes package files too, so it runs the browser
+  scenarios in full.
+- The package versions applied for 1.0.12 also carry the changes of 1.0.10
+  and 1.0.11, whose "version packages" pull request never merged. In a
+  package's changelog, an entry from a later release replaces what an entry
+  from an earlier one says about the same behavior.
+
+### Known limitations
+
+- The wallet does not follow a PSBT it signed short of funds. Once another
+  participant adds inputs, the transaction has a different identifier, so
+  if its broadcast has an unknown outcome the wallet does not keep the
+  inputs it signed reserved, as it does for a transaction it approved
+  whole. A website looks the funded transaction up by the funded
+  transaction's identifier.
 
 ## 1.0.11
 

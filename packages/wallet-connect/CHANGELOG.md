@@ -1,5 +1,11 @@
 # @qbit/wallet-connect
 
+## 0.3.1
+
+### Patch Changes
+
+- c278cd8: Update the protocol SDK to 0.1.2 in its wallet consumers and the companion API to 0.1.2 in the background service.
+
 ## 0.3.0
 
 ### Minor Changes

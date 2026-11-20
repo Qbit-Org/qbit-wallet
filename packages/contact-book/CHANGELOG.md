@@ -1,5 +1,11 @@
 # @qbit/contact-book
 
+## 1.1.9
+
+### Patch Changes
+
+- @qbit/wallet-storage@0.3.3
+
 ## 1.1.8
 
 ### Patch Changes
