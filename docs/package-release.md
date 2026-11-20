@@ -109,25 +109,56 @@ example, `wallet-core` uses `build:all` in `prepublishOnly`.
 
 ## 5. Apply Versions
 
-After changesets are reviewed and checks pass, apply package versions and
-changelogs:
+Package versions and changelogs are applied when a release is prepared, in
+the pull request that sets the extension version. No workflow applies them,
+and an ordinary pull request does not run `changeset version`. On a branch
+cut from `release/x.y.z`, run:
 
 ```sh
-pnpm changeset version
+corepack pnpm release:prepare x.y.z
 ```
 
-Review the generated changes before committing:
+The command:
+
+- sets the extension version in `apps/extension/package.json` and
+  `apps/extension/build/_raw/manifest/_base_v3.json`;
+- gives `docs/releases/release-notes.md` a `## x.y.z` heading when it has
+  none;
+- runs `pnpm run version-packages`, which updates package versions, internal
+  dependency ranges when needed, and package changelogs, and deletes every
+  changeset it applied.
+
+It commits nothing, and it refuses a version lower than the current one
+before it writes anything. Review the generated changes before committing:
 
 ```sh
 git diff
 ```
 
-This step updates package versions, internal dependency ranges when needed, and
-package changelogs.
+Commit them as one change and open the pull request into `release/x.y.z`.
 
-On `main`, the Release workflow (`.github/workflows/release.yml`) runs
-`pnpm run version-packages` and opens or updates the Version Packages pull
-request with the result.
+The `Package versions applied` check, from
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml), is required on
+`main` and on release branches. It fails a pull request that changes the
+extension version and would leave a changeset pending on the branch it
+targets: the pull request that sets the version, and the release pull request
+that brings it to `main`. A pull request that leaves the version alone passes
+whatever `.changeset/` holds, and so does one that only lowers it, such as a
+revert of a release's preparation. A pull request into another branch that
+only brings it to the version `main` already has passes too: a back-merge
+from `main` into a release branch that is not prepared yet raises that
+branch's version, and the changesets the branch holds belong to its own
+release.
+
+If a changeset lands after the version was set, the release pull request
+fails the check. Run the command again with the same version: it leaves the
+version files as they are and applies the new changeset. For a changeset that
+landed on the release branch, run it on a branch cut from the release branch
+and open a pull request into it. For one that came from `main` with the
+back-merge, run it on the `backmerge/x.y.z` branch and include the result in
+the commit a maintainer signs there. A changeset that names only
+`qbit-extension` is never applied, because changesets ignores that package:
+the command says which file it is, and the file is deleted by hand.
 
 ## 6. Publishing
 

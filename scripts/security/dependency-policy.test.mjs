@@ -706,8 +706,7 @@ test('action audit rejects pnpm/action-setup and setup-node cache: pnpm', () => 
 // Nothing may run pnpm before Corepack has put its checked shim first on PATH.
 // In every job the Corepack step comes before each step that runs pnpm, a
 // store cache comes after the step that reads the store path from that pnpm
-// and before the install, and the release job, which receives RELEASE_PAT,
-// restores no cache at all.
+// and before the install.
 // pnpx and pnx run pnpm dlx, and pn is pnpm 11's short name for pnpm.
 const PNPM_WORD = /(?<![A-Za-z0-9_@./-])(?:pnpm|pnpx|pnx|pn)(?![A-Za-z0-9_.-])/
 // The tree pass marker's lookup and save (docs/ci-tree-pass-marker.md) hold one
@@ -822,9 +821,6 @@ function assertPnpmAfterCorepack(file, name, job, readAction) {
       },
       where
     )
-  }
-  if (file === '.github/workflows/release.yml') {
-    assert.deepEqual(cacheSteps, [], `${where} holds RELEASE_PAT and must restore no cache`)
   }
   return runsPnpm
 }
@@ -4705,7 +4701,7 @@ test('executable dependency command audit fails closed on manager lines behind a
   // `]]` closes the conditional even when a `;`, `&`, `|` or `)` follows it
   // directly, so a later `&&` keeps splitting and a reviewed install after it
   // is its own segment, not one that inherits an earlier `echo`'s redirection.
-  // The repository writes this shape in release.yml and qbit-conformance.yml.
+  // The repository writes this shape in qbit-conformance.yml.
   assert.deepEqual(
     auditExecutableDependencyCommands([
       {
