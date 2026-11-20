@@ -50,7 +50,6 @@
   "license": "MIT",
   "dependencies": {
     "@qbit-oss/protocol": "0.1.2",
-    "@bitcoinerlab/secp256k1": "^1.0.5",
     "@noble/hashes": "^1.1.5",
     "@noble/secp256k1": "^1.7.1",
     "@qbit/wallet-shared": "workspace:*",

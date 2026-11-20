@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
   "source": "reviewed package metadata for every sha512-bound pnpm-lock.yaml name@version identity",
-  "lockfileSha256": "95261f601c03194eee23c280ee59220f19b418d085e9357bbe90b083d4e28c0d",
-  "packageCount": 2080,
+  "lockfileSha256": "077e499e5b29960bb85c2d1b57b98c306190103e6c98ad3f82d9629c6dba1745",
+  "packageCount": 2079,
   "packages": {
     "@acemir/cssom@0.9.31": "MIT",
     "@adobe/css-tools@4.3.3": "MIT",
@@ -163,7 +163,6 @@
     "@babel/types@7.29.8": "MIT",
     "@bcoe/v8-coverage@0.2.3": "MIT",
     "@bcoe/v8-coverage@1.0.2": "MIT",
-    "@bitcoinerlab/secp256k1@1.0.5": "MIT",
     "@bufbuild/protobuf@2.2.0": "(Apache-2.0 AND BSD-3-Clause)",
     "@changesets/apply-release-plan@7.0.12": "MIT",
     "@changesets/assemble-release-plan@6.0.9": "MIT",
