@@ -106,8 +106,8 @@ capture and, as no release from 1.0.9 on is captured yet, with a value of
 that shape built in the test. The fill of the fields an older state lacks
 (`updateVersion` in `packages/wallet-state/src/reducers/ui.ts`) therefore no
 longer meets a captured state; the states built by hand in
-`packages/wallet-state/test/reducers/ui.test.ts` test it, and the
-`updateAddressInput` crash it prevents.
+`packages/wallet-state/test/reducers/ui.test.ts` test it, and that
+`updateTxCreateScreen` and `updateFeeRateBar` can write after it.
 
 | Release | ZIP                          | SHA-256                                                            | Captured   |
 | ------- | ---------------------------- | ------------------------------------------------------------------ | ---------- |

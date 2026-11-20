@@ -563,3 +563,118 @@ describe('TransactionOverviewSection relative locks and the unfinalized wording'
     });
   });
 });
+
+describe('TransactionOverviewSection for a PSBT whose outputs exceed its inputs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    cleanup();
+    vi.mocked(useI18n).mockReturnValue({
+      t: (key: string, substitutions?: string | string[]) =>
+        substitutions === undefined
+          ? key
+          : `${key}:${Array.isArray(substitutions) ? substitutions.join(',') : substitutions}`
+    } as any);
+    vi.mocked(useQbitUnit).mockReturnValue('QBT' as any);
+  });
+
+  /** A website draft 30,000 short of its outputs, as the background reviews it: no fee. */
+  const draft = { ...decodedPsbt, isCompleted: false, fee: 0, feeRate: 0, fundingShortfall: 30_000 };
+
+  function renderDraft(overrides: object = {}, toSignData: object = { autoFinalized: false }) {
+    return render(
+      <TransactionOverviewSection
+        decodedPsbt={{ ...draft, ...overrides }}
+        networkFee={0}
+        toSignData={
+          {
+            ...toSignDataWithBudget(),
+            providerContext: { method: 'signPsbt', chain: 'QBIT_REGTEST' },
+            ...toSignData
+          } as any
+        }
+      />
+    );
+  }
+
+  it('shows the exact shortfall for the outputs shown, never a fee of zero', () => {
+    renderDraft();
+
+    expect(screen.getByText('psbt_funding')).toBeTruthy();
+    expect(screen.getByText('qbit_funding_shortfall')).toBeTruthy();
+    expect(screen.getByTestId('psbt-funding-shortfall').textContent).toBe('0.00030000 QBT');
+    expect(screen.getByTestId('psbt-funding-shortfall-raw').textContent).toBe('Exact: 30000 bits');
+    expect(screen.getByTestId('psbt-network-fee-not-set').textContent).toBe('psbt_network_fee_not_set');
+    // No fee, rate or exact fee is shown for it.
+    expect(screen.queryByTestId('psbt-network-fee-base-units')).toBeNull();
+    expect(screen.queryByText('0 QBT')).toBeNull();
+    expect(screen.queryByText('0 bits/vB')).toBeNull();
+    // The signature budget is still shown.
+    expect(screen.getByText('Signature budget: 100 before, 98 after')).toBeTruthy();
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_not_finalized_needs_funding');
+  });
+
+  it('shows the batch budget for a draft signed in a batch', () => {
+    render(
+      <TransactionOverviewSection
+        decodedPsbt={draft}
+        networkFee={0}
+        toSignData={toSignDataWithBudget()}
+        signatureBatchBudget={{ required: 2, cached: 0, remainingBefore: 100, remainingAfter: 98, limit: 1073741824 }}
+      />
+    );
+
+    expect(screen.getByTestId('psbt-funding-shortfall').textContent).toBe('0.00030000 QBT');
+    expect(screen.getByTestId('psbt-batch-signature-budget').textContent).toBe(
+      'Batch signature budget: 2 new; 100 before, 98 after all transactions'
+    );
+  });
+
+  it('shows no funding section for a PSBT whose input values are unknown', () => {
+    renderDraft({ fundingShortfall: undefined });
+
+    expect(screen.queryByTestId('psbt-funding-shortfall')).toBeNull();
+    expect(screen.queryByTestId('psbt-network-fee-not-set')).toBeNull();
+    expect(screen.getByTestId('psbt-finalize-decision').textContent).toBe('psbt_not_finalized');
+  });
+
+  it('shows the fee, not a shortfall, for a funded PSBT', () => {
+    renderDraft({ isCompleted: true, fee: 3860, feeRate: 1 });
+
+    expect(screen.queryByTestId('psbt-funding-shortfall')).toBeNull();
+    expect(screen.getByTestId('psbt-network-fee-base-units').textContent).toBe('Exact fee: 3860 bits');
+  });
+
+  describe('in every locale', () => {
+    const locales = { en, es, fr, ja, ru, zh_TW: zhTW } as Record<string, Record<string, { message: string }>>;
+    const KEYS = [
+      'qbit_funding_shortfall',
+      'qbit_funding_shortfall_description',
+      'psbt_funding',
+      'psbt_network_fee_not_set',
+      'psbt_not_finalized_needs_funding'
+    ];
+
+    it('translates each funding string, without placeholders', () => {
+      for (const [locale, messages] of Object.entries(locales)) {
+        for (const key of KEYS) {
+          expect(messages[key]?.message.trim(), `${locale} ${key}`).toEqual(expect.any(String));
+          expect(messages[key]!.message, `${locale} ${key}`).not.toMatch(/\$\d/);
+          if (locale !== 'en') expect(messages[key]!.message, `${locale} ${key}`).not.toBe(en[key as keyof typeof en]);
+        }
+      }
+    });
+
+    it('calls the shortfall the gap for the outputs shown, excluding the fee, and promises nothing', () => {
+      expect(en.qbit_funding_shortfall.message).toBe('Shortfall for the outputs shown');
+      const description = en.qbit_funding_shortfall_description.message;
+      expect(description).toMatch(/gap for the outputs currently shown, excluding any network fee/);
+      expect(description).toMatch(/can change or be removed/);
+      expect(description).toMatch(/does not guarantee/);
+      // It names no party that must pay, nor an amount that must be added.
+      for (const key of KEYS) {
+        const message = en[key as keyof typeof en].message;
+        expect(message, key).not.toMatch(/whoever|must add|paid by|pays it/i);
+      }
+    });
+  });
+});

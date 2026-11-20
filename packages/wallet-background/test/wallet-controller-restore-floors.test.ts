@@ -26,7 +26,6 @@ vi.mock('../src/services', () => ({
   },
   preferenceService: {
     getChainType: vi.fn(() => ChainType.QBIT_MAINNET),
-    setShowSafeNotice: vi.fn(),
     getKeyringAlianName: vi.fn(() => ''),
     setKeyringAlianName: vi.fn(),
     setKeyringColor: vi.fn(),

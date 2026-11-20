@@ -5,7 +5,7 @@
     "kind": "wallet-golden-core-validated",
     "qbitSdkPackages": {
       "@qbit-oss/pqc": "0.1.1 sha512-+p7hTxDvoRyUTlLifTfkRDuRt6+TO/X7vHMqN7w2XYSTpQGRkZopmQaCdYq2N2WZMtNF9sTAGmBCLgfvkCOfTA==",
-      "@qbit-oss/protocol": "0.1.1 sha512-6KtWP2Ixo5Kh/IYLiECw7pyfR1TbSVB/JmICjyk4cpDIrTPOeKDl3AqhY3DqKZDLChKotvHeljoONhDHCCN7ww=="
+      "@qbit-oss/protocol": "0.1.2 sha512-DCVHbXhjYhRMlE44iF0xsQ6MWvMuoPpKbwwVNBtcvX9GuVeryPZdoHf+BdB4UiZ78HvrxhWGxkxbQYL9Q6iUVQ=="
     },
     "coreEvidence": {
       "validated": true,

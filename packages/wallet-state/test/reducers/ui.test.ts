@@ -48,9 +48,8 @@ describe('ui reducer fee rate source', () => {
 })
 
 describe('ui reducer on a ui state saved by an earlier build', () => {
-  // As an earlier build saved it: no addressInput, amountInput or
-  // navigationSource, a fee bar with only some fields, and a field that no
-  // build reads any more.
+  // As an earlier build saved it: a fee bar with only some fields, and a
+  // field that no build reads any more.
   const savedBefore = () =>
     ({
       uiTxCreateScreen: {
@@ -63,14 +62,18 @@ describe('ui reducer on a ui state saved by an earlier build', () => {
       isBalanceHidden: true,
     }) as unknown as typeof initialState
 
-  it('lets updateAddressInput and updateAmountInput write after the update', () => {
-    const loaded = uiReducer(savedBefore(), updateVersion())
+  it('lets updateTxCreateScreen and updateFeeRateBar write after the update', () => {
+    const { uiTxCreateScreen: _, feeRateBar: __, ...withoutForm } = savedBefore()
+    const loaded = uiReducer(withoutForm as typeof initialState, updateVersion())
 
-    const withAddress = uiReducer(loaded, uiActions.updateAddressInput({ address: 'tq1typed' }))
-    const withAmount = uiReducer(withAddress, uiActions.updateAmountInput({ amount: '1.25' }))
+    const withForm = uiReducer(loaded, uiActions.updateTxCreateScreen({ inputAmount: '1.25' }))
+    const withFee = uiReducer(withForm, uiActions.updateFeeRateBar({ feeRate: 9 }))
 
-    expect(withAmount.addressInput).toEqual({ address: 'tq1typed' })
-    expect(withAmount.amountInput).toEqual({ amount: '1.25' })
+    expect(withFee.uiTxCreateScreen).toEqual({
+      ...initialState.uiTxCreateScreen,
+      inputAmount: '1.25',
+    })
+    expect(withFee.feeRateBar).toEqual({ ...initialState.feeRateBar, feeRate: 9 })
   })
 
   it('fills every missing field, at every depth, and keeps what was saved', () => {
@@ -92,14 +95,14 @@ describe('ui reducer on a ui state saved by an earlier build', () => {
   it('replaces a saved field that should hold an object but does not', () => {
     const saved = {
       ...initialState,
-      addressInput: null,
-      amountInput: 'old',
+      uiTxCreateScreen: null,
+      feeRateBar: 'old',
     } as unknown as typeof initialState
 
     const state = uiReducer(saved, updateVersion())
 
-    expect(state.addressInput).toEqual(initialState.addressInput)
-    expect(state.amountInput).toEqual(initialState.amountInput)
+    expect(state.uiTxCreateScreen).toEqual(initialState.uiTxCreateScreen)
+    expect(state.feeRateBar).toEqual(initialState.feeRateBar)
   })
 
   it('starts from the initial state when the saved state is not an object', () => {
@@ -109,7 +112,7 @@ describe('ui reducer on a ui state saved by an earlier build', () => {
   it('leaves a complete saved state as it was', () => {
     const saved = {
       ...initialState,
-      addressInput: { address: 'tq1saved' },
+      uiTxCreateScreen: { ...initialState.uiTxCreateScreen, inputAmount: '0.5' },
       feeRateBar: {
         ...initialState.feeRateBar,
         feeRateSource: { quoteRead: 'page:1', optionIndex: 2 },

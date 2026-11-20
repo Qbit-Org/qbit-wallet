@@ -1,6 +1,6 @@
 {
   "name": "@qbit/wallet-state",
-  "version": "7.0.0",
+  "version": "8.0.0",
   "private": true,
   "description": "Redux state management for Qbit Wallet, shared between platforms",
   "main": "lib/index.js",
@@ -33,7 +33,7 @@
     "prepublishOnly": "pnpm test && pnpm build"
   },
   "dependencies": {
-    "@qbit-oss/protocol": "0.1.1",
+    "@qbit-oss/protocol": "0.1.2",
     "@qbit/base-utils": "workspace:*",
     "@qbit/keyring-service": "workspace:*",
     "@qbit/wallet-shared": "workspace:*",

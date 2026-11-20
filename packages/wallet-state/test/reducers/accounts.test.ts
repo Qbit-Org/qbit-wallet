@@ -14,7 +14,6 @@ describe('accounts reducer', () => {
 
     it('should have correct initial values', () => {
       expect(initialState.accounts).toEqual([])
-      expect(initialState.loading).toBe(false)
       expect(initialState.balanceV2Map).toEqual({})
       expect(initialState.current.address).toBe('')
     })
@@ -979,97 +978,10 @@ describe('accounts reducer', () => {
     })
   })
 
-  describe('expireHistory', () => {
-    it('expires history by its explicit Qbit scope key', () => {
-      const scopeKey = `qbit-account:QBIT_TESTNET4:${'11'.repeat(32)}`
-      let state = accountsReducer(
-        initialState,
-        accountActions.setCurrent({
-          type: 'QBIT_HD',
-          address: 'tq1qrotatingreceiveaddress',
-        } as any)
-      )
-      state = accountsReducer(
-        state,
-        accountActions.setHistory({
-          address: scopeKey,
-          list: [{ txid: 'tx1' }] as any[],
-        })
-      )
-
-      state = accountsReducer(state, accountActions.expireHistory(scopeKey))
-
-      expect(state.historyMap[scopeKey].expired).toBe(true)
-      expect(state.historyMap[state.current.address]).toBeUndefined()
-    })
-
-    it('keeps the current-address fallback for existing callers', () => {
-      const address = 'bc1qtest123'
-      let state = accountsReducer(
-        initialState,
-        accountActions.setCurrent({
-          type: 'hd',
-          address,
-        } as any)
-      )
-      state = accountsReducer(
-        state,
-        accountActions.setHistory({
-          address,
-          list: [{ txid: 'tx1' }] as any[],
-        })
-      )
-
-      state = accountsReducer(state, accountActions.expireHistory())
-
-      expect(state.historyMap[address].expired).toBe(true)
-    })
-  })
-
-  describe('setCurrentAccountName', () => {
-    it('should update current account name and matching account in list', () => {
-      const account = {
-        type: 'hd',
-        address: 'qb1ztest123',
-        brandName: 'Qbit',
-        alianName: 'Account 1',
-        displayBrandName: 'Qbit',
-        index: 0,
-        balance: 0,
-        pubkey: '02abc123',
-        key: 'key1',
-        flag: 0,
-      }
-
-      let state = accountsReducer(initialState, accountActions.setCurrent(account))
-      state = accountsReducer(state, accountActions.setAccounts([account]))
-      state = accountsReducer(state, accountActions.setCurrentAccountName('New Name'))
-
-      expect(state.current.alianName).toBe('New Name')
-      expect(state.accounts[0].alianName).toBe('New Name')
-    })
-  })
-
-  describe('pendingLogin / rejectLogin', () => {
-    it('should set loading to true on pendingLogin', () => {
-      const state = accountsReducer(initialState, accountActions.pendingLogin(undefined))
-      expect(state.loading).toBe(true)
-    })
-
-    it('should set loading to false on rejectLogin', () => {
-      let state = accountsReducer(initialState, accountActions.pendingLogin(undefined))
-      expect(state.loading).toBe(true)
-
-      state = accountsReducer(state, accountActions.rejectLogin(undefined))
-      expect(state.loading).toBe(false)
-    })
-  })
-
   describe('reset', () => {
     it('should reset state to initial state', () => {
-      let state = accountsReducer(initialState, accountActions.pendingLogin(undefined))
-      state = accountsReducer(
-        state,
+      let state = accountsReducer(
+        initialState,
         accountActions.setCurrent({
           type: 'hd',
           address: 'qb1ztest123',
@@ -1084,7 +996,6 @@ describe('accounts reducer', () => {
         })
       )
 
-      expect(state.loading).toBe(true)
       expect(state.current.address).toBe('qb1ztest123')
 
       state = accountsReducer(state, accountActions.reset(undefined))

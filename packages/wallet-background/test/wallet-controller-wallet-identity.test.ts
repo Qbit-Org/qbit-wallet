@@ -719,7 +719,6 @@ describe('wallet colors', () => {
     ])
     expect(listed[1].isCorrupted).toBe(true)
     expect((await wallet.getCurrentKeyring())?.color).toBe('violet')
-    expect((await wallet.getEditingKeyring()).color).toBe(walletColorForSlot(0))
     expect(await wallet.setKeyringAlianName(listed[2], 'Renamed')).toMatchObject({
       alianName: 'Renamed',
       color: 'violet',

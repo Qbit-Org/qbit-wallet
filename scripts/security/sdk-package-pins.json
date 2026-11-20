@@ -20,24 +20,24 @@
     },
     {
       "package": "@qbit-oss/protocol",
-      "version": "0.1.1",
-      "integrity": "sha512-6KtWP2Ixo5Kh/IYLiECw7pyfR1TbSVB/JmICjyk4cpDIrTPOeKDl3AqhY3DqKZDLChKotvHeljoONhDHCCN7ww==",
+      "version": "0.1.2",
+      "integrity": "sha512-DCVHbXhjYhRMlE44iF0xsQ6MWvMuoPpKbwwVNBtcvX9GuVeryPZdoHf+BdB4UiZ78HvrxhWGxkxbQYL9Q6iUVQ==",
       "provenance": {
         "repository": "Qbit-Org/qbit-js",
         "workflow": ".github/workflows/publish.yml",
-        "ref": "refs/tags/v0.1.1",
-        "commit": "1cbf4b3e8fd3c7e51eba0d953910d5dafc9ae88f"
+        "ref": "refs/tags/v0.1.2",
+        "commit": "de7aae787c25f6cdbe468aad8bcf538cb7e4d699"
       }
     },
     {
       "package": "@qbit-oss/api",
-      "version": "0.1.1",
-      "integrity": "sha512-8m9I2pqU7ndUiipbXvcUWYhFsHl7Fod2I7RBCyGj4ZpH7atnm1DOd91gz1PebEQNN1NWb+oC7lzeLhA75bSh9g==",
+      "version": "0.1.2",
+      "integrity": "sha512-bsfbIGwckq2Cjt2ikNbW/mW+9ABGsxdeyGfZ09NQLt09E60AfJNvid0YzMtVL3WQNKUM2f3yczKWlZObmK5KiQ==",
       "provenance": {
         "repository": "Qbit-Org/qbit-js",
         "workflow": ".github/workflows/publish.yml",
-        "ref": "refs/tags/v0.1.1",
-        "commit": "1cbf4b3e8fd3c7e51eba0d953910d5dafc9ae88f"
+        "ref": "refs/tags/v0.1.2",
+        "commit": "de7aae787c25f6cdbe468aad8bcf538cb7e4d699"
       }
     }
   ]

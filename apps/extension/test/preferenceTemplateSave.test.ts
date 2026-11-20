@@ -148,19 +148,32 @@ describe('loading the settings at start-up', () => {
     expect(browserStorage.set).not.toHaveBeenCalled();
     expect(browserStorage.disk.preference).toEqual(PREFERENCE_1_0_5);
     expect(service.getLocale()).toBe('fr');
-    expect(service.getCurrency()).toBe('EUR');
     expect(service.getAutoLockTimeId()).toBe(6);
     expect(service.getEnableRBF()).toBe(false);
     expect(service.getKeyringAlianName('keyring_0')).toBe('Savings');
     expect(service.getCurrentAccount()).toEqual(PREFERENCE_1_0_5.currentAccount);
 
-    // The next save keeps them, without the signData setting the wallet no
-    // longer has, and with both lock settings on and an empty map of wallet
-    // colors, which 1.0.5 did not have.
+    // The next save keeps them, without the settings the wallet no longer
+    // has, and with both lock settings on and an empty map of wallet colors,
+    // which 1.0.5 did not have.
     await vi.advanceTimersByTimeAsync(1000);
-    const { enableSignData: _dropped, ...kept } = PREFERENCE_1_0_5;
+    const dropped = [
+      'enableSignData',
+      'currency',
+      'showSafeNotice',
+      'acceptLowFeeMode',
+      'rateUsStatus',
+      'walletSavedList',
+      'editingKeyringIndex',
+      'uiCachedData',
+      'watchAddressPreference',
+      'currentVersion'
+    ];
+    const kept = Object.fromEntries(Object.entries(PREFERENCE_1_0_5).filter(([key]) => !dropped.includes(key)));
     expect(browserStorage.set).toHaveBeenCalledTimes(1);
-    expect(browserStorage.disk.preference).not.toHaveProperty('enableSignData');
+    for (const key of dropped) {
+      expect(browserStorage.disk.preference, key).not.toHaveProperty(key);
+    }
     expect(browserStorage.disk.preference).toEqual({
       ...kept,
       lockOnComputerLock: true,

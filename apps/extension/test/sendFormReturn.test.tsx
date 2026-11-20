@@ -21,7 +21,6 @@ import { BUS_METHODS, KeyringType } from '@qbit/wallet-shared';
 import {
   AccountUpdater,
   createAppStore,
-  uiActions,
   uiEventBus,
   useIsUnlocked,
   useNavigation,
@@ -249,10 +248,6 @@ async function fillSendForm() {
   fireEvent.click(screen.getByTestId('rbf-checkbox-input'));
   fireEvent.click(await screen.findByTestId(`fee-rate-option-${CUSTOM_FEE_OPTION}`));
   fireEvent.change(await screen.findByPlaceholderText('bits/vB'), { target: { value: '3.5' } });
-  // The low-fee flag has no control on the form; it is kept like the rest.
-  act(() => {
-    store.dispatch(uiActions.updateFeeRateBar({ enableLowFeeRate: true }));
-  });
   await waitFor(() => expect(store.getState().ui.uiTxCreateScreen).toEqual(FILLED_FORM));
 }
 
@@ -268,8 +263,7 @@ async function expectFilledSendForm() {
   expect(store.getState().ui.feeRateBar).toMatchObject({
     feeOptionIndex: CUSTOM_FEE_OPTION,
     feeRateInputVal: '3.5',
-    showCustomInput: true,
-    enableLowFeeRate: true
+    showCustomInput: true
   });
 }
 
@@ -283,8 +277,7 @@ function expectEmptySendFormState() {
   expect(store.getState().ui.feeRateBar).toMatchObject({
     feeOptionIndex: 1,
     feeRateInputVal: '',
-    showCustomInput: false,
-    enableLowFeeRate: false
+    showCustomInput: false
   });
 }
 

@@ -4,6 +4,7 @@ import { AddressFlagType, DEFAULT_LOCKTIME_ID, ErrorCodes } from '@qbit/wallet-s
 import { BaseProxyStorageAdapter } from '@qbit/wallet-storage'
 import { ChainType } from '@qbit/wallet-types'
 import { PreferenceService } from '../src/preference-service'
+import { DROPPED_KEYS } from './dropped-keys'
 
 const createStorage = () => ({
   createPersistentProxy: vi.fn(),
@@ -60,21 +61,23 @@ describe('PreferenceService', () => {
     expect(service.getChainType()).toBe(ChainType.QBIT_MAINNET)
 
     expect(service.getLocale()).toBe('en')
-    expect(service.getCurrency()).toBe('USD')
     expect(service.getExternalLinkAck()).toBe(false)
-    expect(service.getShowSafeNotice()).toBe(true)
     expect(rawStore.lockOnComputerLock).toBe(true)
     expect(rawStore.lockOnWindowsClosed).toBe(true)
     expect(service.getCurrentAccount()).toBeNull()
 
-    expect(service.getWalletSavedList()).toEqual([])
     expect(service.getAddressBalance('bc1qnone')).toBeNull()
     expect(service.getAddressHistory('bc1qnone')).toEqual([])
-    expect(service.getRateUsStatus()).toEqual({
-      hasRated: false,
-      ratePromptDismissedAt: null,
-      hasShownSecondPrompt: false,
-    })
+    // Settings this build no longer has are dropped, not repaired.
+    for (const key of [
+      'currency',
+      'showSafeNotice',
+      'walletSavedList',
+      'uiCachedData',
+      'rateUsStatus',
+    ]) {
+      expect(rawStore, key).not.toHaveProperty(key)
+    }
   })
 
   it('keeps a persisted regtest selection in every channel (the background gates its use)', async () => {
@@ -302,57 +305,6 @@ describe('PreferenceService', () => {
     const removed = service.removeAddressFlag('bc1q1', AddressFlagType.CONFIRMED_UTXO_MODE)
     expect(removed).toBe(0)
     expect(service.getAddressFlag('bc1q1')).toBe(0)
-  })
-
-  it('updates and resets rate-us status fields', async () => {
-    storage.createPersistentProxy.mockResolvedValue({
-      locale: 'en',
-      currency: 'USD',
-      externalLinkAck: false,
-      showSafeNotice: true,
-      currentAccount: null,
-      currentKeyringIndex: 0,
-      editingKeyringIndex: 0,
-      editingAccount: null,
-      balanceMap: {},
-      historyMap: {},
-      watchAddressPreference: {},
-      walletSavedList: [],
-      alianNames: {},
-      initAlianNames: false,
-      currentVersion: '0',
-      firstOpen: false,
-      chainType: ChainType.QBIT_MAINNET,
-      keyringAlianNames: {},
-      accountAlianNames: {},
-      uiCachedData: {},
-      skippedVersion: '',
-      addressFlags: {},
-      autoLockTimeId: DEFAULT_LOCKTIME_ID,
-      openInSidePanel: false,
-      developerMode: false,
-      rateUsStatus: { hasRated: false, ratePromptDismissedAt: 0, hasShownSecondPrompt: false },
-      acceptLowFeeMode: false,
-    })
-
-    await service.init({ storage: storage as any, logger: { debug: vi.fn(), error: vi.fn() } })
-
-    service.setHasRated(true)
-    service.setRatePromptDismissedAt(123)
-    service.setHasShownSecondPrompt(true)
-
-    expect(service.getRateUsStatus()).toEqual({
-      hasRated: true,
-      ratePromptDismissedAt: 123,
-      hasShownSecondPrompt: true,
-    })
-
-    service.resetRateUsStatus()
-    expect(service.getRateUsStatus()).toEqual({
-      hasRated: false,
-      ratePromptDismissedAt: null,
-      hasShownSecondPrompt: false,
-    })
   })
 
   it('defaults themeMode to system and rejects invalid values', async () => {
@@ -752,7 +704,7 @@ describe('PreferenceService persistence', () => {
     expect((await load()).getEnableRBF()).toBe(true)
   })
 
-  it('saves default names and UI cache entries created on read', async () => {
+  it('saves default names created on read', async () => {
     const service = await load()
     // Let the save scheduled by startup repairs finish, so it cannot carry the
     // writes below to disk.
@@ -760,13 +712,11 @@ describe('PreferenceService persistence', () => {
 
     expect(service.getKeyringAlianName('keyring_7', 'HD Wallet #8')).toBe('HD Wallet #8')
     expect(service.getAccountAlianName('keyring_7#0', 'Account 1')).toBe('Account 1')
-    expect(service.getUICachedData('qb1zaddress')).toEqual({})
 
     await vi.advanceTimersByTimeAsync(1000)
     const reloaded = await load()
     expect(reloaded.getKeyringAlianName('keyring_7')).toBe('HD Wallet #8')
     expect(reloaded.getAccountAlianName('keyring_7#0')).toBe('Account 1')
-    expect(JSON.parse(adapter.disk.get('preference')!).uiCachedData).toEqual({ qb1zaddress: {} })
   })
 
   it('resetAllData is not undone by a save the previous store still had pending', async () => {
@@ -1009,25 +959,56 @@ describe('PreferenceService persistence', () => {
     expect(reloaded.getChainType()).toBe(ChainType.QBIT_TESTNET4)
   })
 
-  it('drops the signData setting an earlier build stored and never saves it again', async () => {
-    adapter.disk.set(
-      'preference',
-      JSON.stringify({ locale: 'fr', currency: 'EUR', enableSignData: true, enableRBF: false })
-    )
+  it('drops the settings an earlier build stored that this build no longer has, and never saves them again', async () => {
+    // What earlier builds stored of the settings this build drops, beside
+    // settings it keeps, an unknown one included.
+    const dropped = {
+      enableSignData: true,
+      currency: 'EUR',
+      showSafeNotice: false,
+      acceptLowFeeMode: true,
+      guideReaded: true,
+      rateUsStatus: { hasRated: true, ratePromptDismissedAt: 123, hasShownSecondPrompt: true },
+      walletSavedList: [{ address: 'qb1zsaved' }],
+      editingKeyringIndex: 1,
+      editingAccount: { pubkey: 'pubkey-e', address: 'qb1ze' },
+      uiCachedData: { qb1zaddress: {} },
+      addressSummary: { qb1zaddress: { address: 'qb1zaddress', totalSatoshis: 1 } },
+      watchAddressPreference: { qb1zwatch: 1 },
+      currentVersion: '0',
+    }
+    expect(Object.keys(dropped).sort()).toEqual([...DROPPED_KEYS].sort())
+    const kept = {
+      locale: 'fr',
+      enableRBF: false,
+      developerMode: true,
+      currentKeyringIndex: 1,
+      currentAccount: { pubkey: 'pubkey-x', address: 'qb1zx' },
+      keyringAlianNames: { keyring_1: 'Savings' },
+      accountAlianNames: { 'keyring_1#0': 'Rent' },
+      skippedVersion: '1.0.9',
+      laterSetting: { kept: true },
+    }
+    adapter.disk.set('preference', JSON.stringify({ ...dropped, ...kept }))
 
     const service = await load()
     expect(service.getLocale()).toBe('fr')
     expect(service.getEnableRBF()).toBe(false)
+    expect(service.getDeveloperMode()).toBe(true)
+    expect(service.getCurrentAccount()).toEqual(kept.currentAccount)
     // The debounced save of the repaired store, then a setting's own write.
     await vi.advanceTimersByTimeAsync(1000)
     await service.setAutoLockTimeId(3)
 
     expect(adapter.written).toHaveLength(2)
-    expect(adapter.written.filter(value => 'enableSignData' in value)).toEqual([])
+    for (const key of DROPPED_KEYS) {
+      expect(
+        adapter.written.filter(value => key in value),
+        key
+      ).toEqual([])
+    }
     expect(JSON.parse(adapter.disk.get('preference')!)).toMatchObject({
-      locale: 'fr',
-      currency: 'EUR',
-      enableRBF: false,
+      ...kept,
       autoLockTimeId: 3,
     })
   })

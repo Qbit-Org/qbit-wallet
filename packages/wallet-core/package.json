@@ -1,6 +1,6 @@
 {
   "name": "@qbit/wallet-core",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "private": true,
   "description": "Transaction, address, and signing utilities for Qbit Wallet",
   "main": "lib/index.js",
@@ -49,8 +49,7 @@
   "author": "Qbit Wallet Team",
   "license": "MIT",
   "dependencies": {
-    "@qbit-oss/protocol": "0.1.1",
-    "@bitcoinerlab/secp256k1": "^1.0.5",
+    "@qbit-oss/protocol": "0.1.2",
     "@noble/hashes": "^1.1.5",
     "@noble/secp256k1": "^1.7.1",
     "@qbit/wallet-shared": "workspace:*",

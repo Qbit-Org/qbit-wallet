@@ -1,5 +1,35 @@
 # @qbit/preference-service
 
+## 2.0.0
+
+### Major Changes
+
+- 9231628: Breaking change: `getAutoLockTimeId()` returns an auto-lock time id offered now (`resolveAutoLockTimeId`, `@qbit/wallet-shared`), not the stored value as it is: a retired id gives the id that replaced it, and any other value that is no id offered now gives the shortest time, 5 minutes (id 3). Breaking change: `init` writes the auto-lock time when the stored one needs repair (`repairStoredAutoLockTimeId`), before it resolves rather than after the store's debounced save: a retired id is stored as its replacement, and a value that is no whole number of zero or more (`null`, a string, a fractional or negative number) as the shortest time. A failed save is logged and left to the debounced save. A missing value, an id offered now, and a whole number that is neither offered nor retired, which a later build may have stored, stay on disk and add no write. The store's format is unchanged. A new store starts at the new default, 30 minutes (id 5).
+
+### Minor Changes
+
+- 5b98b06: `resetAllData` takes an optional `{ keep }` list of preferences whose current values go into the reset's single write in place of their defaults; a wallet reset keeps `locale` and `themeMode` this way. `setWalletResetPending()` records, on disk before it resolves, that a wallet reset is under way, `getWalletResetPending()` reads it back, and `clearWalletResetPending()` takes it back, resolving once that is on disk; the mark is the optional `walletResetPending` field of the store, absent in a new store and in one saved before it existed, and `resetAllData` clears it with everything else. `getWalletId()` reads the optional `walletId` field and `createWalletId(wanted?)` makes one from the platform's random source, saved before it resolves and made once for calls at the same time; `resetAllData` drops it. `readWalletId()` waits for an id that is being saved, so none is handed out before it is on disk. `getSavedWalletId()` answers the id as it is on disk, and none while a first id is still being saved. `isInitialized()` tells whether `init` has loaded the preferences.
+- d33eca0: The preferences keep the records of wallet removals whose send plans may not all be ended yet (#216), in the optional `qbitSendPlanRemovals` field of the store: absent in a new store and in one saved before it existed, which reads as none, and dropped by `resetAllData`. `addQbitSendPlanRemoval(wallet, accounts)` appends a `QbitSendPlanRemovalRecord` (version 1: a random id, the wallet's slot and keyring type, and the accounts whose plans end, each a Qbit network and an address) and resolves with it once it is on disk; it rejects, the record not kept, when storage refuses the write or an account names no Qbit network. `getQbitSendPlanRemovals()` answers the records this version reads and, for the entries it cannot read (another version, a damaged one, a repeated id), how many there are and the accounts they name; such entries are kept as they are stored on every write. `forgetQbitSendPlanRemoval(id)` drops one record and rejects, the record kept, when storage refuses the write; it makes that one write itself and saves no restored value after a refusal, and the storage adapter's own deferred save follows a failed flush as for any preference. Changes to the list run one after the other, so two removals and a forget at the same time lose nothing. `QBIT_SEND_PLAN_CHAINS` is the set of networks a record may name.
+
+### Patch Changes
+
+- fa23068: Remove the settings of the wallet this one was forked from that nothing reads, with their accessors and `BasePreferenceStore` fields: `currency`, `showSafeNotice`, `acceptLowFeeMode`, `guideReaded`, `rateUsStatus` (and the `RateUsStatus` type), `walletSavedList`, `editingKeyringIndex`, `editingAccount`, `uiCachedData`, `addressSummary`, `watchAddressPreference` and `currentVersion`; also `hasOtherProvider`, the `currency:changed` event and the `MobilePreferenceStore` type. `init` drops those keys from a store an earlier release saved, as it already dropped `enableSignData`, and saves the store once without them; every other stored setting loads and is saved back as it was.
+- Updated dependencies [9231628]
+- Updated dependencies [26065a5]
+- Updated dependencies [041fbaf]
+- Updated dependencies [5df0946]
+- Updated dependencies [c278cd8]
+- Updated dependencies [96fd314]
+- Updated dependencies [c278cd8]
+- Updated dependencies [d6e03ce]
+- Updated dependencies [5b98b06]
+- Updated dependencies [44e0ee3]
+- Updated dependencies [d33eca0]
+- Updated dependencies [4ff73ed]
+- Updated dependencies [fa23068]
+  - @qbit/wallet-shared@4.0.0
+  - @qbit/wallet-storage@0.3.3
+
 ## 1.0.0
 
 ### Major Changes

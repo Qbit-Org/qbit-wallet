@@ -18,7 +18,6 @@ export type RouteParamList = {
   }
   CreatePasswordScreen: {
     isNewAccount?: boolean
-    fromColdWallet?: boolean
   }
 
   MainScreen: undefined
@@ -46,9 +45,6 @@ export type RouteParamList = {
   }
   CreateWatchWalletScreen: undefined
   CreateReadonlyWalletScreen: undefined
-  CreateColdWalletScreen: {
-    fromUnlock?: boolean
-  }
 
   ExportMnemonicsScreen: { keyring: WalletKeyring }
   ExportPrivateKeyScreen: {
@@ -177,7 +173,6 @@ export interface NavigationContextType {
 
   getRouteState<T extends RouteTypes>(): RouteParamList[T]
 
-  navToUtxoTools: () => void
   navToUrl: (url: string, externalBrowser?: boolean) => void
 
   navToExplorerTx: (txid: string) => void
@@ -203,8 +198,6 @@ const initContext = {
     // todo
     return undefined as T
   },
-
-  navToUtxoTools: () => {},
 
   navToUrl: (url: string, externalBrowser?: boolean) => {},
   navToExplorerTx: (txid: string) => {},

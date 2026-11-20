@@ -3,7 +3,6 @@ import { QBIT_FALLBACK_FEE_RATE } from '@qbit/wallet-shared'
 import type { ChainType } from '@qbit/wallet-types'
 
 import { resetWalletState, updateVersion } from '../actions/global'
-import { NavigationSource } from '../types'
 
 /** The quote read, and the option, from which a fee bar chose its rate. */
 export interface FeeRateSource {
@@ -27,16 +26,9 @@ export interface UIState {
     enableRBF: boolean
     memo: string
   }
-  addressInput: {
-    address: string
-  }
-  amountInput: {
-    amount: string
-  }
   feeRateBar: {
     feeRate: number
     feeRateInputVal: string
-    enableLowFeeRate: boolean
     feeOptionIndex: number
     showCustomInput: boolean
     /**
@@ -45,7 +37,6 @@ export interface UIState {
      */
     feeRateSource: FeeRateSource | null
   }
-  navigationSource: NavigationSource
   isBalanceHidden: boolean
   /**
    * Whether the balance card shows Available and Unavailable: closed until
@@ -70,22 +61,14 @@ export const initialState: UIState = {
     enableRBF: true,
     memo: '',
   },
-  addressInput: {
-    address: '',
-  },
-  amountInput: {
-    amount: '',
-  },
   feeRateBar: {
     // No fee bar has chosen a rate yet; a screen waits until one does.
     feeRate: QBIT_FALLBACK_FEE_RATE,
     feeRateInputVal: '',
-    enableLowFeeRate: false,
     feeOptionIndex: 1, // Default to AVG
     showCustomInput: false,
     feeRateSource: null,
   },
-  navigationSource: NavigationSource.NORMAL,
   isBalanceHidden: false,
   balanceDetailOpen: false,
   sendFormScope: null,
@@ -93,10 +76,10 @@ export const initialState: UIState = {
 
 /**
  * The ui state once the store selects the account at `address` on
- * `chainType`. The send form (`uiTxCreateScreen`), the fee bar and the
- * address and amount inputs hold what was entered for the account and
- * network that `sendFormScope` records. When a known account and network
- * replace those with different ones, the four take their initial values,
+ * `chainType`. The send form (`uiTxCreateScreen`) and the fee bar hold
+ * what was entered for the account and network that `sendFormScope`
+ * records. When a known account and network replace those with different
+ * ones, both take their initial values,
  * and the new ones are recorded. An empty address is no account yet, as
  * before the accounts load: it changes nothing, so the values stay for an
  * account and network that come back unchanged. The first account and
@@ -111,8 +94,6 @@ export function scopeSendForm(state: UIState, address: string, chainType: ChainT
   return {
     ...state,
     uiTxCreateScreen: initialState.uiTxCreateScreen,
-    addressInput: initialState.addressInput,
-    amountInput: initialState.amountInput,
     feeRateBar: initialState.feeRateBar,
     sendFormScope,
   }
@@ -200,7 +181,6 @@ const slice: Slice<UIState> = createSlice({
         payload: {
           feeRate?: number
           feeRateInputVal?: string
-          enableLowFeeRate?: boolean
           feeOptionIndex?: number
           showCustomInput?: boolean
           feeRateSource?: FeeRateSource | null
@@ -215,9 +195,6 @@ const slice: Slice<UIState> = createSlice({
       if (action.payload.feeRateInputVal !== undefined) {
         state.feeRateBar.feeRateInputVal = action.payload.feeRateInputVal
       }
-      if (action.payload.enableLowFeeRate !== undefined) {
-        state.feeRateBar.enableLowFeeRate = action.payload.enableLowFeeRate
-      }
       if (action.payload.feeOptionIndex !== undefined) {
         state.feeRateBar.feeOptionIndex = action.payload.feeOptionIndex
       }
@@ -230,47 +207,8 @@ const slice: Slice<UIState> = createSlice({
       state.feeRateBar = initialState.feeRateBar
     },
 
-    updateAddressInput(
-      state,
-      action: {
-        payload: {
-          address?: string
-        }
-      }
-    ) {
-      if (action.payload.address !== undefined) {
-        state.addressInput.address = action.payload.address
-      }
-      state.addressInput = { ...state.addressInput }
-    },
-
-    resetAddressInput(state) {
-      state.addressInput = initialState.addressInput
-    },
-
-    updateAmountInput(
-      state,
-      action: {
-        payload: {
-          amount?: string
-        }
-      }
-    ) {
-      if (action.payload.amount !== undefined) {
-        state.amountInput.amount = action.payload.amount
-      }
-      state.amountInput = { ...state.amountInput }
-    },
-
-    resetAmountInput(state) {
-      state.amountInput = initialState.amountInput
-    },
-
     resetTxCreateScreen(state) {
       state.uiTxCreateScreen = initialState.uiTxCreateScreen
-    },
-    setNavigationSource(state, action: { payload: NavigationSource }) {
-      state.navigationSource = action.payload
     },
     setBalanceHidden(state, action: { payload: boolean }) {
       state.isBalanceHidden = action.payload

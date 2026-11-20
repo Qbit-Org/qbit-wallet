@@ -27,12 +27,15 @@ with its tests next to it. The workflows only wire it together.
 
 | Workflow                      | Jobs the marker covers                                                                                                                                                                                      | On a marker hit                                                                                                               | Never covered       |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `ci.yml`                      | `Typecheck, test, and build` and its lanes `Unit tests: qbit-extension`, `Unit tests: wallet-background`, `Typecheck, security checks and other unit tests` and `Build and reproduce the extension`; `Lint` | each lane runs and skips its steps; `Typecheck, test, and build` runs, checks the lanes and skips the rest; `Lint` is skipped | `Dependency policy` |
+| `ci.yml`                      | `Typecheck, test, and build` and its lanes `Unit tests: qbit-extension`, `Unit tests: wallet-background`, `Typecheck, security checks and other unit tests` and `Build and reproduce the extension`; `Lint` | each lane runs and skips its steps; `Typecheck, test, and build` runs, checks the lanes and skips the rest; `Lint` is skipped | `Dependency policy`, `Package versions applied` |
 | `playwright-release-gate.yml` | `Playwright G3 scenarios`, `Playwright G3 shard 1 of 5` … `Playwright G3 shard 5 of 5`                                                                                                                      | each shard runs and skips its steps; `Playwright G3 scenarios` runs, checks the shards and skips the rest                     | none                |
 
 `Dependency policy` always runs: its `pnpm audit` asks the registry for current
 advisories and its risk exceptions expire by date, so the same tree can pass
-one day and fail the next. It takes about a minute. `release.yml`,
+one day and fail the next. It takes about a minute.
+`Package versions applied` always runs too: it judges the commit under test
+against its first parent, the base branch's tip on a pull request, so a tree
+that passed for one base says nothing about another, and it takes seconds.
 `build-regtest-images.yml`, `pqc.yml` and `qbit-conformance.yml` do not use the
 marker.
 
@@ -497,9 +500,11 @@ never does; it only means a full run or no marker.
 
 ## Required checks in the skip path
 
-The `main-protection` ruleset requires two checks:
-`Typecheck, test, and build` and `Playwright G3 scenarios`. Release branches
-require none.
+Two of the checks the rulesets require have a skip path:
+`Typecheck, test, and build`, required on `main`, and
+`Playwright G3 scenarios`, required on `main` and on release branches. The
+other required checks, `signed-landing` and `Package versions applied`, have
+none: the marker does not cover them, and nothing skips them.
 
 - Both jobs keep running on a marker hit, with every step after the gate
   skipped (each also checks its lanes or shards), so each check reports

@@ -1,6 +1,6 @@
 {
   "name": "@qbit/wallet-background",
-  "version": "10.0.0",
+  "version": "11.0.0",
   "private": true,
   "description": "Background runtime and wallet controller for Qbit Wallet",
   "main": "lib/index.js",
@@ -45,9 +45,9 @@
     "@qbit/wallet-types": "workspace:*",
     "@qbit/base-utils": "workspace:*",
     "@qbit/wallet-shared": "workspace:*",
-    "@qbit-oss/api": "0.1.1",
+    "@qbit-oss/api": "0.1.2",
     "@qbit-oss/pqc": "0.1.1",
-    "@qbit-oss/protocol": "0.1.1"
+    "@qbit-oss/protocol": "0.1.2"
   },
   "dependencies": {
     "bignumber.js": "^9.1.1",

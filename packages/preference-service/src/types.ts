@@ -4,13 +4,7 @@
 
 import { EventEmitter } from 'eventemitter3'
 import { ChainType } from '@qbit/wallet-types'
-import {
-  Account,
-  AddressSummary,
-  QbitBalance,
-  ThemeMode,
-  TxHistoryItem,
-} from '@qbit/wallet-shared'
+import { Account, QbitBalance, ThemeMode, TxHistoryItem } from '@qbit/wallet-shared'
 import { ProxyStorageAdapter } from '@qbit/wallet-storage'
 
 // Base preference store structure
@@ -18,14 +12,10 @@ export interface BasePreferenceStore {
   // Account management
   currentKeyringIndex: number
   currentAccount: Account | undefined | null
-  editingKeyringIndex: number
-  editingAccount: Account | undefined | null
 
   // User preferences
   locale: string
-  currency: string
   externalLinkAck: boolean
-  showSafeNotice: boolean
 
   // Network configuration
   chainType: ChainType
@@ -37,8 +27,6 @@ export interface BasePreferenceStore {
   historyMap: {
     [address: string]: TxHistoryItem[]
   }
-  watchAddressPreference: Record<string, number>
-  walletSavedList: any[]
   alianNames?: Record<string, string>
   keyringAlianNames: {
     [key: string]: string
@@ -55,13 +43,8 @@ export interface BasePreferenceStore {
   }
   addressFlags: { [key: string]: number }
 
-  // UI and app data
-  uiCachedData: {
-    [address: string]: Record<string, never>
-  }
   // Version management
   initAlianNames: boolean
-  currentVersion: string
   firstOpen: boolean
   skippedVersion: string
 
@@ -107,16 +90,6 @@ export interface BasePreferenceStore {
    */
   walletId?: string
 
-  // Mobile-specific fields (optional)
-  guideReaded?: boolean
-  addressSummary?: {
-    [address: string]: AddressSummary
-  }
-
-  // Mobile-specific fields (optional)
-  rateUsStatus: RateUsStatus
-
-  acceptLowFeeMode: boolean
   enableRBF: boolean
 }
 
@@ -150,12 +123,6 @@ export interface QbitSendPlanRemovals {
   unreadable: { count: number; accounts: QbitSendPlanRemovalAccount[] }
 }
 
-export interface RateUsStatus {
-  hasRated: boolean
-  ratePromptDismissedAt: number | null
-  hasShownSecondPrompt: boolean
-}
-
 // Extension-specific additions
 export interface ExtensionPreferenceStore extends BasePreferenceStore {
   autoLockTimeId: number
@@ -164,14 +131,6 @@ export interface ExtensionPreferenceStore extends BasePreferenceStore {
   openInSidePanel: boolean
   developerMode: boolean
   themeMode: ThemeMode
-}
-
-// Mobile-specific additions
-export interface MobilePreferenceStore extends BasePreferenceStore {
-  guideReaded: boolean
-  addressSummary: {
-    [address: string]: AddressSummary
-  }
 }
 
 // Service configuration
@@ -188,7 +147,6 @@ export interface PreferenceServiceConfig {
 export interface PreferenceServiceEvents {
   'account:changed': (account: Account | null) => void
   'locale:changed': (locale: string) => void
-  'currency:changed': (currency: string) => void
   'chain:changed': (chainType: ChainType) => void
   'preference:updated': (key: string, value: any) => void
   'preference:error': (error: Error) => void
