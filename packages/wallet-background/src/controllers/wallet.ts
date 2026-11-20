@@ -6684,30 +6684,6 @@ export class WalletController extends BaseController {
     }
   }
 
-  // No hardware or cold signer can produce qbit's SLH-DSA signatures, so a
-  // cold wallet cannot be created (#53). keyring-service keeps
-  // ColdWalletKeyring registered, so a vault that already holds one decodes.
-  createKeyringWithColdWallet = async (
-    _xpub: string,
-    _addressType: AddressType,
-    _alianName?: string,
-    _hdPath?: string,
-    _accountCount?: number
-  ): Promise<WalletKeyring> => {
-    throw new Error(t('hardware_wallet_not_supported'))
-  }
-
-  // A BIP32 xpub derives secp256k1 keys only, never a qbit P2MR address, so
-  // no account can come from one (#53).
-  deriveAccountsFromXpub = async (
-    _xpub: string,
-    _addressType: AddressType,
-    _hdPath?: string,
-    _accountCount?: number
-  ): Promise<{ pubkey: string; address: string }[]> => {
-    throw new Error(t('hardware_wallet_not_supported'))
-  }
-
   // Queued with migration and other chain-state work: a migration start that
   // observed only seed-only-restored state must not interleave with this
   // removal and lose its source or destination mid-creation, so the recovery

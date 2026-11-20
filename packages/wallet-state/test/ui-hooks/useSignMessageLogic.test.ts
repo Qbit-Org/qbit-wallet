@@ -2,6 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+  KeyringType,
   SignMessageType,
   createBlockedWebsiteResult,
   createClearWebsiteResult,
@@ -10,6 +11,7 @@ import {
   type P2mrMessageProof,
   type WebsiteSafetyResult,
 } from '@qbit/wallet-shared'
+import { accountActions } from '../../src/reducers/accounts'
 import {
   SIGN_MESSAGE_WEBSITE_CHECK_TIMEOUT_MS,
   useSignMessageLogic,
@@ -106,6 +108,31 @@ describe('useSignMessageLogic', () => {
     expect(harness.approval.rejectApproval.mock.calls[0]).toEqual([APPROVAL_ID])
     expect(harness.approval.resolveApproval).not.toHaveBeenCalled()
     expect(signMessage).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses to sign from a cold-wallet account a stored vault still holds', async () => {
+    const signMessage = vi.fn()
+    const wallet = walletWithSignMessage(signMessage)
+    const harness = createHookTestHarness({ wallet: wallet as any })
+    harness.store.dispatch(
+      accountActions.setCurrent({
+        ...harness.store.getState().accounts.current,
+        type: KeyringType.ColdWalletKeyring,
+      })
+    )
+    const { result } = renderHook(() => useSignMessageLogic(messageProps()), {
+      wrapper: harness.wrapper,
+    })
+    await waitFor(() => expect(result.current.websiteCheckStatus).toBe('clear'))
+
+    act(() => result.current.onClickSign())
+
+    // No signer produces SLH-DSA signatures for a cold wallet (#53), so
+    // signing stops at the "not supported" message.
+    expect(harness.tools.toastError).toHaveBeenCalledWith('not_supported')
+    expect(signMessage).not.toHaveBeenCalled()
+    expect(harness.approval.resolveApproval).not.toHaveBeenCalled()
+    expect(harness.approval.rejectApproval).not.toHaveBeenCalled()
   })
 
   it('forwards a preflighted P2MR account binding and rejects an account-switch failure', async () => {

@@ -3,7 +3,6 @@ import { cloneElement, forwardRef, isValidElement, useEffect, useRef, useState }
 
 import { Button, Card, Checkbox, Column, Content, Footer, Header, Input, Layout, Row, Text } from '@/ui/components';
 import { AutoFitVirtualList } from '@/ui/components/AutoFitVirtualList';
-import ColdWalletSignPsbt from '@/ui/components/ColdWallet/ColdWalletSignPsbt';
 import { PhishingDetection } from '@/ui/components/PhishingDetection';
 import { QbitRestoredFloorWarning } from '@/ui/components/QbitRestoredFloorWarning';
 import { SignPsbtWithRisksPopover, getRiskContentKey } from '@/ui/components/SignPsbtWithRisksPopover';
@@ -20,7 +19,7 @@ import { colors } from '@/ui/theme/colors';
 import { fontSizes } from '@/ui/theme/font';
 import { spacing } from '@/ui/theme/spacing';
 import { numUtils } from '@qbit/base-utils';
-import { AccountSignMethod, ToSignData, isWebsiteSuppliedPsbt } from '@qbit/wallet-shared';
+import { AccountSignMethod, ToSignData } from '@qbit/wallet-shared';
 import {
   PsbtLocalInfo,
   SignPsbtProps,
@@ -167,7 +166,6 @@ export default function SignPsbt(props: SignPsbtProps) {
     setReadonlySignedPsbtHex,
 
     // signing state
-    isColdWalletSigning,
     showMultiSignView,
 
     disclaimerVisible,
@@ -201,9 +199,6 @@ export default function SignPsbt(props: SignPsbtProps) {
     onQuickMultiSign,
     onTryMultiSign,
     onTrustSite,
-
-    onColdWalletSigningSuccess,
-    onColdWalletSigningBack,
 
     onRiskPopoverConfirm,
     onRiskPopoverClose,
@@ -312,9 +307,9 @@ export default function SignPsbt(props: SignPsbtProps) {
     flight.handedOff = true;
     const signOutcome = onClickSign();
     if (accountCapabilities.signMethod !== AccountSignMethod.Local) {
-      // Non-local methods return to an interactive screen (cold-wallet back,
-      // readonly signature entry) without consuming the challenge, so allow
-      // another confirmation pass.
+      // Non-local methods return to an interactive screen (readonly
+      // signature entry) without consuming the challenge, so allow another
+      // confirmation pass.
       releaseRecoverySignFlight(flight);
       return;
     }
@@ -452,19 +447,6 @@ export default function SignPsbt(props: SignPsbtProps) {
           </Row>
         </Footer>
       </Layout>
-    );
-  }
-
-  // cold-wallet signing
-  if (isColdWalletSigning && currentToSignData) {
-    return (
-      <ColdWalletSignPsbt
-        psbtHex={currentToSignData.psbtHex}
-        suppliedByWebsite={isWebsiteSuppliedPsbt(currentToSignData)}
-        onSuccess={onColdWalletSigningSuccess}
-        onCancel={onColdWalletSigningBack}
-        header={header}
-      />
     );
   }
 

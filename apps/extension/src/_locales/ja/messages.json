@@ -110,9 +110,6 @@
   "theme_system": {
     "message": "システム"
   },
-  "after_signing_scan_the_signed_qr_code_back_with_this_wallet": {
-    "message": "4. 署名後、このウォレットで署名済みQRコードをスキャンしてください。"
-  },
   "allow_this_site_to_switch_the_chain": {
     "message": "このサイトにチェーンの切り替えを許可しますか？"
   },
@@ -341,14 +338,8 @@
   "code_unknown_error": {
     "message": "不明なエラー。"
   },
-  "cold_wallet_transaction_signing": {
-    "message": "コールドウォレット取引署名"
-  },
   "collect_your_personal_information": {
     "message": "個人情報を収集する"
-  },
-  "completed": {
-    "message": "完了"
   },
   "confirm": {
     "message": "確認"
@@ -566,12 +557,6 @@
   "from": {
     "message": "送信元"
   },
-  "generating": {
-    "message": "生成中..."
-  },
-  "generating_qr_code": {
-    "message": "QRコードを生成中..."
-  },
   "go_back": {
     "message": "戻る"
   },
@@ -602,9 +587,6 @@
   "i_already_have_a_wallet": {
     "message": "すでにウォレットを持っています"
   },
-  "i_have_signed_scan_result": {
-    "message": "署名完了、結果をスキャン"
-  },
   "i_saved_my_secret_recovery_phrase": {
     "message": "シークレットリカバリーフレーズを保存しました"
   },
@@ -634,9 +616,6 @@
   },
   "inputs": {
     "message": "インプット"
-  },
-  "instructions": {
-    "message": "手順："
   },
   "insufficient_balance": {
     "message": "残高不足です。"
@@ -706,60 +685,6 @@
   },
   "mnemonics_24_words": {
     "message": "24 語"
-  },
-  "msg_already_signed": {
-    "message": "このメッセージは既に署名されています"
-  },
-  "msg_content": {
-    "message": "メッセージ内容"
-  },
-  "msg_detail": {
-    "message": "メッセージ詳細"
-  },
-  "msg_generate_qr": {
-    "message": "QRコード生成"
-  },
-  "msg_generate_sign": {
-    "message": "署名生成"
-  },
-  "msg_generating_qr": {
-    "message": "QRコード生成中..."
-  },
-  "msg_message": {
-    "message": "メッセージ"
-  },
-  "msg_origin": {
-    "message": "送信元: "
-  },
-  "msg_pending": {
-    "message": "署名待ち"
-  },
-  "msg_scan_qr_code": {
-    "message": "コールドウォレットでQRコードをスキャンしてください"
-  },
-  "msg_scan_result": {
-    "message": "スキャン結果"
-  },
-  "msg_scan_sign": {
-    "message": "署名スキャン"
-  },
-  "msg_sign": {
-    "message": "メッセージ署名"
-  },
-  "msg_sign_type": {
-    "message": "署名タイプ"
-  },
-  "msg_signed": {
-    "message": "署名済み"
-  },
-  "msg_start_sign": {
-    "message": "署名開始"
-  },
-  "msg_status": {
-    "message": "ステータス"
-  },
-  "msg_waiting_sign": {
-    "message": "署名待機中"
   },
   "multisign_disclaimer": {
     "message": "マルチシグ免責事項"
@@ -866,9 +791,6 @@
   "open_as_side_bar": {
     "message": "サイドバーを開く"
   },
-  "open_your_cold_wallet_app_or_device": {
-    "message": "1. コールドウォレットアプリまたはデバイスを開いてください。"
-  },
   "outputs": {
     "message": "アウトプット"
   },
@@ -931,9 +853,6 @@
   },
   "please_pay_attention_to_whether_you_have_backed_up": {
     "message": "資産損失を防ぐため、ニーモニック/秘密鍵をバックアップしたか注意してください"
-  },
-  "previous": {
-    "message": "前へ"
   },
   "private_key_is_only_stored_in_your_browser_it_is_y": {
     "message": "秘密鍵を安全に保管するのはあなたの責任です！"
@@ -1037,9 +956,6 @@
   "restore_wallet": {
     "message": "ウォレットを復元"
   },
-  "review_and_confirm_transaction_details_in_your_cold_wallet": {
-    "message": "3. コールドウォレットで取引詳細を確認し、承認してください。"
-  },
   "save": {
     "message": "保存"
   },
@@ -1051,12 +967,6 @@
   },
   "scammer_address_risk_title": {
     "message": "⚠️ 不審なアドレスが検出されました"
-  },
-  "scan_this_qr_code": {
-    "message": "2. このQRコードをスキャンしてください。"
-  },
-  "scan_this_qr_code_with_your_cold_wallet_to_review_and_sign_the_transaction": {
-    "message": "コールドウォレットでこのQRコードをスキャンして、取引を確認・署名してください。"
   },
   "search_address_or_name": {
     "message": "アドレスまたは名前を検索"
