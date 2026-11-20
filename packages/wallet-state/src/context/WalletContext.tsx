@@ -56,7 +56,7 @@ import {
   WalletKeyring,
   WebsiteSafetyResult,
 } from '@qbit/wallet-shared'
-import { AddressType, ChainType, NetworkType } from '@qbit/wallet-types'
+import { AddressType, ChainType } from '@qbit/wallet-types'
 import type { PendingApproval } from './ApprovalContext'
 
 interface ContactBookItem {
@@ -242,20 +242,6 @@ export interface WalletController {
     accountCount: number,
     accountIndexDerivation?: boolean
   ): Promise<{ address: string; type: string }[]>
-  createKeyringWithColdWallet(
-    xpub: string,
-    addressType: AddressType,
-    alianName?: string,
-    hdPath?: string,
-    accountCount?: number
-  ): Promise<WalletKeyring>
-
-  deriveAccountsFromXpub(
-    xpub: string,
-    addressType: AddressType,
-    hdPath?: string,
-    accountCount?: number
-  ): Promise<{ pubkey: string; address: string }[]>
 
   createTmpKeyringWithMnemonics(
     mnemonic: string,
@@ -445,8 +431,6 @@ export interface WalletController {
   getQbitUtxoSnapshot(readId?: string, rideOut?: true): Promise<QbitUtxoSnapshot>
   /** Stop waiting for that read; a walk nothing waits for any more stops. */
   abandonQbitUtxoSnapshot(readId: string): Promise<void>
-
-  getNetworkType(): Promise<NetworkType>
 
   getChainType(): Promise<ChainType>
   setChainType(type: ChainType): Promise<void>

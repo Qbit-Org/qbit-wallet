@@ -3016,19 +3016,42 @@
       "cwe": "CWE-405",
       "github_advisory_id": "GHSA-g3hv-75wg-m249",
       "url": "https://github.com/advisories/GHSA-g3hv-75wg-m249"
+    },
+    "1248090": {
+      "findings": [
+        {
+          "version": "2.2.3",
+          "paths": [
+            ".>tiny-secp256k1",
+            "packages__wallet-core>tiny-secp256k1"
+          ],
+          "dev": false,
+          "optional": false,
+          "bundled": false
+        }
+      ],
+      "id": 1248090,
+      "title": "tiny-secp256k1: Stale buffer after ignored wasm failure accepts invalid infinity tweak",
+      "module_name": "tiny-secp256k1",
+      "vulnerable_versions": ">=2.1.0 <2.2.5",
+      "patched_versions": ">=2.2.5",
+      "severity": "moderate",
+      "cwe": "CWE-252",
+      "github_advisory_id": "GHSA-hj9c-qx2w-g7mh",
+      "url": "https://github.com/advisories/GHSA-hj9c-qx2w-g7mh"
     }
   },
   "metadata": {
     "vulnerabilities": {
       "info": 0,
       "low": 9,
-      "moderate": 32,
+      "moderate": 33,
       "high": 0,
       "critical": 0
     },
-    "dependencies": 1191,
-    "devDependencies": 860,
-    "optionalDependencies": 111,
-    "totalDependencies": 2079
+    "dependencies": 1175,
+    "devDependencies": 862,
+    "optionalDependencies": 110,
+    "totalDependencies": 2064
   }
 }

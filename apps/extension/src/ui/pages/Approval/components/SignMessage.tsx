@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { Button, Card, Checkbox, Column, Content, Footer, Header, Input, Layout, Row, Text } from '@/ui/components';
-import { ColdWalletSignMessage } from '@/ui/components/ColdWallet';
 import { walletErrorMessage } from '@/ui/utils';
 import { PhishingDetection } from '@/ui/components/PhishingDetection';
 import { QbitRestoredFloorWarning } from '@/ui/components/QbitRestoredFloorWarning';
@@ -32,7 +31,6 @@ export default function SignMessage(props: SignMessageProps) {
     session,
 
     // page state
-    isColdWalletSigning,
     showMultiSignView,
 
     disclaimerVisible,
@@ -60,9 +58,6 @@ export default function SignMessage(props: SignMessageProps) {
     onQuickMultiSign,
     onTryMultiSign,
     onTrustSite,
-
-    onColdWalletSigningSuccess,
-    onColdWalletSigningBack,
 
     readonlySignature,
     setReadonlySignature,
@@ -158,9 +153,9 @@ export default function SignMessage(props: SignMessageProps) {
     flight.handedOff = true;
     onClickSign();
     if (accountCapabilities.signMethod !== AccountSignMethod.Local) {
-      // Non-local methods return to an interactive screen (cold-wallet back,
-      // readonly signature entry) without consuming the challenge, so allow
-      // another confirmation pass.
+      // Non-local methods return to an interactive screen (readonly
+      // signature entry) without consuming the challenge, so allow another
+      // confirmation pass.
       releaseRecoverySignFlight(flight);
     }
   };
@@ -194,23 +189,6 @@ export default function SignMessage(props: SignMessageProps) {
   // condition render
   if (isBlocked) {
     return <PhishingDetection handleCancel={handleClickBack} />;
-  }
-
-  // Handle cold wallet signing
-  if (isColdWalletSigning && currentToSignMessage) {
-    return (
-      <ColdWalletSignMessage
-        messages={[{ text: currentToSignMessage.text, type: currentToSignMessage.type }]}
-        onSuccess={(ret) =>
-          onColdWalletSigningSuccess({
-            signature: ret[0]
-          })
-        }
-        onCancel={onColdWalletSigningBack}
-        header={header}
-        origin={props.params.session?.origin}
-      />
-    );
   }
 
   if (loading) {
