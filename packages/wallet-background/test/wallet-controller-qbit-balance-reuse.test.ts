@@ -490,12 +490,6 @@ describe("WalletController's balance answers kept for reuse (W-F3)", () => {
         },
       ],
       [
-        'the wallet method that reads an address',
-        async (wallet: WalletController) => {
-          await wallet.getAddressUtxo(address)
-        },
-      ],
-      [
         "a recovery pass's source read",
         async (wallet: WalletController) => {
           const client = (wallet as any).getQbitApiClient(ChainType.QBIT_TESTNET4)

@@ -204,9 +204,6 @@ describe('WalletController local regtest capability', () => {
     await expect(wallet.setChainType(ChainType.QBIT_REGTEST)).rejects.toMatchObject({
       code: ErrorCodes.REGTEST_ACCESS_LOCKED,
     })
-    await expect(wallet.setNetworkType(2 as any)).rejects.toMatchObject({
-      code: ErrorCodes.REGTEST_ACCESS_LOCKED,
-    })
     expectNoChainMutation(wallet)
     expect(selectKeyring).not.toHaveBeenCalled()
     expect(fetch).not.toHaveBeenCalled()

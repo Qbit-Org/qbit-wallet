@@ -127,31 +127,47 @@ const RESTORE_SAVE_RETRY_DELAY_MS = 100
 // new address, so only the most recently written entries are kept.
 const HISTORY_CACHE_ENTRY_LIMIT = 16
 
+/**
+ * Settings earlier releases stored that this build no longer has: the
+ * signData switch, and settings of the wallet this one was forked from that
+ * nothing here reads (fiat currency, safety notice, low-fee mode, onboarding
+ * guide, rate-us prompt, highlighted wallets, the wallet and account being
+ * edited, the UI cache, address summaries, watched-address preferences and
+ * the template version).
+ */
+const DROPPED_KEYS: readonly string[] = [
+  'enableSignData',
+  'currency',
+  'showSafeNotice',
+  'acceptLowFeeMode',
+  'guideReaded',
+  'rateUsStatus',
+  'walletSavedList',
+  'editingKeyringIndex',
+  'editingAccount',
+  'uiCachedData',
+  'addressSummary',
+  'watchAddressPreference',
+  'currentVersion',
+]
+
 const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
 const defaultTemplate = {
   currentKeyringIndex: 0,
   currentAccount: undefined,
-  editingKeyringIndex: 0,
-  editingAccount: undefined,
   externalLinkAck: false,
   balanceMap: {},
   historyMap: {},
   locale: 'auto',
-  watchAddressPreference: {},
-  walletSavedList: [],
   alianNames: {},
   initAlianNames: false,
-  currentVersion: '0',
   firstOpen: false,
-  currency: 'USD',
   chainType: ChainType.QBIT_MAINNET as any,
   keyringAlianNames: {},
   keyringColors: {},
   accountAlianNames: {},
-  uiCachedData: {},
   skippedVersion: '',
-  showSafeNotice: true,
   addressFlags: {},
   autoLockTimeId: DEFAULT_LOCKTIME_ID,
   lockOnComputerLock: true,
@@ -159,13 +175,6 @@ const defaultTemplate = {
   openInSidePanel: false,
   developerMode: false,
   themeMode: DEFAULT_THEME_MODE,
-  rateUsStatus: {
-    hasRated: false,
-    ratePromptDismissedAt: 0,
-    hasShownSecondPrompt: false,
-  },
-
-  acceptLowFeeMode: false,
   enableRBF: true,
 } as unknown as BasePreferenceStore
 
@@ -190,7 +199,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
   // State flags
   protected initialized = false
   public popupOpen = false
-  public hasOtherProvider = false
 
   constructor() {
     super()
@@ -408,11 +416,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.store.locale = defaultLang
     }
 
-    // Set default values for optional fields
-    if (!this.store.currency) {
-      this.store.currency = 'USD'
-    }
-
     // normalizeAvailableChainType migrates unknown or build-disabled chains.
     // A persisted regtest selection is kept here: whether it may be used is an
     // asynchronous background capability (optional loopback permission +
@@ -431,13 +434,11 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.store.externalLinkAck = false
     }
 
-    // Earlier builds stored whether signData requests were allowed. That
-    // setting is gone, and the store loads every stored key, so drop it here
-    // rather than save it again with each change.
-    Reflect.deleteProperty(this.store, 'enableSignData')
-
-    if (typeof this.store.showSafeNotice !== 'boolean') {
-      this.store.showSafeNotice = true
+    // Earlier builds stored settings this build no longer has (DROPPED_KEYS).
+    // The store loads every stored key, so drop them here rather than save
+    // them again with each change.
+    for (const key of DROPPED_KEYS) {
+      Reflect.deleteProperty(this.store, key)
     }
 
     // Preferences stored before these settings existed have neither, and they
@@ -488,10 +489,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.store.historyMap = historyMap
     }
 
-    if (!this.store.walletSavedList) {
-      this.store.walletSavedList = []
-    }
-
     if (!this.store.keyringAlianNames) {
       this.store.keyringAlianNames = {}
     }
@@ -510,22 +507,10 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
       this.store.addressFlags = {}
     }
 
-    if (!this.store.uiCachedData) {
-      this.store.uiCachedData = {}
-    }
-
     // Validate current account
     if (this.store.currentAccount && !this.store.currentAccount.pubkey) {
       // Old version account format, reset
       this.store.currentAccount = undefined
-    }
-
-    if (!this.store.rateUsStatus) {
-      this.store.rateUsStatus = {
-        hasRated: false,
-        ratePromptDismissedAt: null,
-        hasShownSecondPrompt: false,
-      }
     }
 
     if (autoLockTimeIdChanged) {
@@ -632,17 +617,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
   async setLocale(locale: string): Promise<void> {
     this.store.locale = locale
-  }
-
-  /**
-   * Currency management
-   */
-  getCurrency(): string {
-    return this.store.currency
-  }
-
-  setCurrency(currency: string): void {
-    this.store.currency = currency
   }
 
   /**
@@ -760,50 +734,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
   }
 
   /**
-   * Editing state
-   */
-  getEditingKeyringIndex(): number {
-    return this.store.editingKeyringIndex
-  }
-
-  setEditingKeyringIndex(keyringIndex: number): void {
-    this.store.editingKeyringIndex = keyringIndex
-  }
-
-  getEditingAccount(): Account | null {
-    return cloneDeep(this.store.editingAccount) || null
-  }
-
-  setEditingAccount(account?: Account | null): void {
-    this.store.editingAccount = account
-  }
-
-  /**
-   * UI cached data management
-   */
-  getUICachedData(address: string): any {
-    if (!this.store.uiCachedData[address]) {
-      this.expireUICachedData(address)
-    }
-    return this.store.uiCachedData[address]
-  }
-
-  expireUICachedData(address: string): void {
-    this.store.uiCachedData = { ...this.store.uiCachedData, [address]: {} }
-  }
-
-  /**
-   * Safety and preferences
-   */
-  getShowSafeNotice(): boolean {
-    return this.store.showSafeNotice
-  }
-
-  setShowSafeNotice(showSafeNotice: boolean): void {
-    this.store.showSafeNotice = showSafeNotice
-  }
-
-  /**
    * Version management
    */
   getSkippedVersion(): string {
@@ -812,17 +742,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
   setSkippedVersion(version: string): void {
     this.store.skippedVersion = version
-  }
-
-  /**
-   * Get wallet saved list
-   */
-  getWalletSavedList(): any[] {
-    return this.store.walletSavedList || []
-  }
-
-  updateWalletSavedList(list: any[]): void {
-    this.store.walletSavedList = list
   }
 
   /**
@@ -1143,75 +1062,6 @@ export class PreferenceService extends EventEmitter<PreferenceServiceEvents> {
 
   setThemeMode(themeMode: ThemeMode): void {
     this.store.themeMode = THEME_MODES.includes(themeMode) ? themeMode : DEFAULT_THEME_MODE
-  }
-
-  /**
-   * Guide read status (Mobile-specific)
-   */
-  getGuideReaded(): boolean {
-    return this.store.guideReaded || false
-  }
-
-  setGuideReaded(guideReaded: boolean): void {
-    this.store.guideReaded = guideReaded
-  }
-
-  /**
-   * Address summary management (Mobile-specific)
-   */
-  getAddressSummary(address: string): any {
-    const summaryMap = this.store.addressSummary || {}
-    return summaryMap[address] || null
-  }
-
-  setAddressSummary(address: string, summary: any): void {
-    const summaryMap = this.store.addressSummary || {}
-    this.store.addressSummary = {
-      ...summaryMap,
-      [address]: summary,
-    }
-  }
-
-  // Rate Us Status
-  getRateUsStatus = () => {
-    return this.store.rateUsStatus
-  }
-
-  setHasRated = (hasRated: boolean) => {
-    this.store.rateUsStatus = {
-      ...this.store.rateUsStatus,
-      hasRated,
-    }
-  }
-
-  setRatePromptDismissedAt = (timestamp: number | null) => {
-    this.store.rateUsStatus = {
-      ...this.store.rateUsStatus,
-      ratePromptDismissedAt: timestamp,
-    }
-  }
-
-  setHasShownSecondPrompt = (hasShown: boolean) => {
-    this.store.rateUsStatus = {
-      ...this.store.rateUsStatus,
-      hasShownSecondPrompt: hasShown,
-    }
-  }
-
-  resetRateUsStatus = () => {
-    this.store.rateUsStatus = {
-      hasRated: false,
-      ratePromptDismissedAt: null,
-      hasShownSecondPrompt: false,
-    }
-  }
-
-  getAcceptLowFeeMode = (): boolean => {
-    return this.store.acceptLowFeeMode || false
-  }
-
-  setAcceptLowFeeMode = (accept: boolean): void => {
-    this.store.acceptLowFeeMode = accept
   }
 
   getEnableRBF = (): boolean => {
