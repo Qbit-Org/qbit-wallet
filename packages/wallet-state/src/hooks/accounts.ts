@@ -72,24 +72,6 @@ export function useAccountBalance() {
   )
 }
 
-/**
- * Whether the current account has a balance from the explorer yet, and
- * whether its latest refresh failed (the balance, if any, is then stale).
- */
-export function useAccountBalanceStatus() {
-  const accountsState = useAccountsState()
-  const currentAccount = useCurrentAccount()
-  return {
-    loaded: accountsState.balanceV2Map[currentAccount.address] !== undefined,
-    error: accountsState.balanceStatusMap[currentAccount.address]?.error === true,
-  }
-}
-
-export function useAddressSummary() {
-  const accountsState = useAccountsState()
-  return accountsState.addressSummary
-}
-
 export function useHistory() {
   const accountsState = useAccountsState()
   const historyScopeKey = useHistoryScopeKey()

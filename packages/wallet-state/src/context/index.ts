@@ -4,7 +4,6 @@ export {
   type ApprovalContextType,
   type PendingApproval,
 } from './ApprovalContext'
-export { DeviceContext, useDevice, type DeviceContextType } from './DeviceContext'
 export { I18nContext, useI18n, type I18nContextType } from './I18nContext'
 export {
   NavigationContext,

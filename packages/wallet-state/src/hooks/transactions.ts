@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback } from 'react'
 import { useStore } from 'react-redux'
 
 import {
@@ -48,11 +48,6 @@ export function useTransactionsState(): AppState['transactions'] {
   return useAppSelector(state => state.transactions)
 }
 
-export function useQbitTx() {
-  const transactionsState = useTransactionsState()
-  return transactionsState.qbitTx
-}
-
 function hexByteLength(hex?: string): number {
   return hex ? Math.ceil(hex.length / 2) : 0
 }
@@ -93,10 +88,6 @@ function qbitMemoOutputScriptLengths(memo?: string, memos?: string[]): number[] 
 export function getQbitP2mrSpendableUtxos(utxos: UnspentOutput[], account: Account) {
   const accountScriptPubKey = account.p2mr?.scriptPubKey
   return utxos.filter(utxo => isQbitAccountOutput(utxo, accountScriptPubKey))
-}
-
-export function getQbitP2mrSpendableSatoshis(utxos: UnspentOutput[], account: Account) {
-  return getQbitP2mrSpendableUtxos(utxos, account).reduce((sum, utxo) => sum + utxo.satoshis, 0)
 }
 
 export interface QbitP2mrSendPreflight {
@@ -458,25 +449,20 @@ export function usePrepareSendQBTCallback() {
 
 /**
  * Post-success bookkeeping shared by the broadcast and status-check paths:
- * publish the txid to the transaction slice and refresh the balance card.
+ * refresh the balance card.
  */
 function useQbitBroadcastSucceededCallback() {
-  const dispatch = useAppDispatch()
   const fetchBalance = useFetchBalanceCallback()
-  return useCallback(
-    (txid: string) => {
-      dispatch((transactionsActions as any).updateQbitTx({ txid }))
-      // Refetch instead of only expiring: the balance card reads
-      // balanceV2Map, which nothing repopulates until the next poll tick.
-      const refreshBalance = () => {
-        fetchBalance().catch(() => undefined)
-      }
-      refreshBalance()
-      setTimeout(refreshBalance, 2000)
-      setTimeout(refreshBalance, 5000)
-    },
-    [dispatch, fetchBalance]
-  )
+  return useCallback(() => {
+    // Refetch instead of only expiring: the balance card reads
+    // balanceV2Map, which nothing repopulates until the next poll tick.
+    const refreshBalance = () => {
+      fetchBalance().catch(() => undefined)
+    }
+    refreshBalance()
+    setTimeout(refreshBalance, 2000)
+    setTimeout(refreshBalance, 5000)
+  }, [fetchBalance])
 }
 
 /**
@@ -519,7 +505,7 @@ export function usePushQbitTxCallback() {
         }
         await timeUtils.sleep(3) // Wait for transaction synchronization
         tools.showLoading(false)
-        onBroadcastSucceeded(result.txid)
+        onBroadcastSucceeded()
         return result
       } catch (e) {
         tools.showLoading(false)
@@ -560,7 +546,7 @@ export function useCheckQbitBroadcastStatusCallback() {
     ): Promise<QbitBroadcastStatusCheck> => {
       try {
         const status = await wallet.checkQbitBroadcastStatus(txid, chain, qbitSendBroadcastClaim)
-        if (status.found === true) onBroadcastSucceeded(status.txid)
+        if (status.found === true) onBroadcastSucceeded()
         return status
       } catch (e) {
         const detail = sanitizeQbitBroadcastDetail(qbitBroadcastErrorMessage(e))
@@ -654,16 +640,6 @@ export function useUtxosLoaded() {
   )
 }
 
-/**
- * The network the cached outputs were loaded on, whichever account they were
- * read for; null before the first load. `useUtxosLoaded` tells whether they
- * are the selected account's on the active network.
- */
-export function useUtxosChain() {
-  const transactionsState = useTransactionsState()
-  return transactionsState.utxosChain
-}
-
 /** Numbers this UI's output reads in the order they start. */
 let utxoReads = 0
 
@@ -735,27 +711,4 @@ export function useFetchUtxosCallback() {
     },
     [dispatch, store, wallet, address, chainType]
   )
-}
-
-export function useSpendUnavailableUtxos() {
-  const transactionsState = useTransactionsState()
-  return transactionsState.spendUnavailableUtxos
-}
-
-export function useSetSpendUnavailableUtxosCallback() {
-  const dispatch = useAppDispatch()
-  return useCallback(
-    (utxos: UnspentOutput[]) => {
-      dispatch((transactionsActions as any).setSpendUnavailableUtxos(utxos))
-    },
-    [dispatch]
-  )
-}
-
-export function useSafeBalance() {
-  const utxos = useUtxos()
-  return useMemo(() => {
-    const satoshis = utxos.reduce((pre, cur) => pre + cur.satoshis, 0)
-    return numUtils.satoshisToAmount(satoshis)
-  }, [utxos])
 }

@@ -50,14 +50,12 @@ export function useUpdateFeeRateBar() {
     ({
       feeRate,
       feeRateInputVal,
-      enableLowFeeRate,
       feeOptionIndex,
       showCustomInput,
       feeRateSource,
     }: {
       feeRate?: number
       feeRateInputVal?: string
-      enableLowFeeRate?: boolean
       feeOptionIndex?: number
       showCustomInput?: boolean
       /** Where `feeRate` came from; a rate written without one has none. */
@@ -67,7 +65,6 @@ export function useUpdateFeeRateBar() {
         (uiActions as any).updateFeeRateBar({
           feeRate,
           feeRateInputVal,
-          enableLowFeeRate,
           feeOptionIndex,
           showCustomInput,
           feeRateSource,
@@ -85,58 +82,6 @@ export function useResetFeeRateBar() {
   }, [dispatch])
 }
 
-export function useAddressInput() {
-  const uiState = useUIState()
-  return uiState.addressInput
-}
-
-export function useUpdateAddressInput() {
-  const dispatch = useAppDispatch()
-  return useCallback(
-    ({ address }: { address?: string }) => {
-      dispatch(
-        (uiActions as any).updateAddressInput({
-          address,
-        })
-      )
-    },
-    [dispatch]
-  )
-}
-
-export function useResetAddressInput() {
-  const dispatch = useAppDispatch()
-  return useCallback(() => {
-    dispatch((uiActions as any).resetAddressInput())
-  }, [dispatch])
-}
-
-export function useAmountInput() {
-  const uiState = useUIState()
-  return uiState.amountInput
-}
-
-export function useUpdateAmountInput() {
-  const dispatch = useAppDispatch()
-  return useCallback(
-    ({ amount }: { amount?: string }) => {
-      dispatch(
-        (uiActions as any).updateAmountInput({
-          amount,
-        })
-      )
-    },
-    [dispatch]
-  )
-}
-
-export function useResetAmountInput() {
-  const dispatch = useAppDispatch()
-  return useCallback(() => {
-    dispatch((uiActions as any).resetAmountInput())
-  }, [dispatch])
-}
-
 export function useResetTxState() {
   const dispatch = useAppDispatch()
   return useCallback(() => {
@@ -151,24 +96,6 @@ export function useResetUiTxCreateScreen() {
     dispatch((uiActions as any).resetTxCreateScreen())
   }, [dispatch])
 }
-
-export const useThrottle = (callback, delay, lastCallRef) => {
-  return useCallback(
-    (...args) => {
-      const now = Date.now()
-      if (now - lastCallRef.current > delay) {
-        lastCallRef.current = now
-        callback(...args)
-      }
-    },
-    [callback, delay, lastCallRef]
-  )
-}
-
-export const useIsInExpandView = () => {
-  return typeof window !== 'undefined' && window.innerWidth > 156 * 3
-}
-
 
 export function useBalanceCardDetailExpanded() {
   const uiState = useUIState()
