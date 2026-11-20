@@ -129,21 +129,28 @@ change. Docs-only and test-only changes do not need one.
 The packages under `packages/` are private: changesets bump their versions
 and write their changelogs, but they are not published to npm. The extension
 (`qbit-extension`) is versioned by hand for each store release, so changesets
-skip it. See [`docs/package-release.md`](docs/package-release.md).
+skip it. Changesets are applied when a release is prepared, in the pull
+request that sets the extension version
+(`corepack pnpm release:prepare x.y.z`), so do not run `changeset version` in
+any other pull request. See
+[`docs/package-release.md`](docs/package-release.md).
 
 ## Review
 
 - A ruleset on `main` requires one approving review, and the most recent
   push must be approved by someone other than the person who pushed it. New
   pushes dismiss earlier approvals.
-- A second ruleset requires three status checks:
-  `Typecheck, test, and build`, `Playwright G3 scenarios` and
-  `signed-landing`. The first two each pass only when every job they
-  gather passed: the four lanes that typecheck, test and build the
-  extension in parallel, and the five G3 shards (see
-  [`docs/ci-tree-pass-marker.md`](docs/ci-tree-pass-marker.md)). The
-  other CI jobs, including `Lint` and `Dependency policy`, are not
-  required, so reviewers check them before merging.
+- A second ruleset requires four status checks:
+  `Typecheck, test, and build`, `Playwright G3 scenarios`,
+  `signed-landing` and `Package versions applied`. The first two each pass
+  only when every job they gather passed: the four lanes that typecheck,
+  test and build the extension in parallel, and the five G3 shards (see
+  [`docs/ci-tree-pass-marker.md`](docs/ci-tree-pass-marker.md)). The last
+  fails a pull request that sets a new extension version and leaves a
+  changeset pending (see
+  [`docs/package-release.md`](docs/package-release.md)). The other CI jobs,
+  including `Lint` and `Dependency policy`, are not required, so reviewers
+  check them before merging.
 - A pull request that changes only documentation that no skipped step reads
   (markdown under `docs/`, and the root `README.md`, `CONTRIBUTING.md` and
   `SECURITY.md`) skips the steps of three of those four lanes and of the G3
@@ -180,7 +187,8 @@ skip it. See [`docs/package-release.md`](docs/package-release.md).
 - Another ruleset requires a verified signature on every commit of `main`
   and `release/*`, and it has no bypass list.
 - Release branches (`release/*`) have that signature rule, take changes
-  through pull requests only, and require the `signed-landing` check. They
+  through pull requests only, and require the `Playwright G3 scenarios`,
+  `signed-landing` and `Package versions applied` checks. They
   require no approval. Their changes reach `main`
   through a pull request that the `main` rules apply to. Reconcile branches
   such as `release/1.0.8-reconcile-main` are left out of both rules.

@@ -2638,8 +2638,10 @@ const MARKED_WORKFLOWS = {
     // extension under its version, and check the built manifest's version
     // against package.json.
     versionBump: false,
-    // Never covered: they run on every event.
-    uncovered: ['dependency-policy'],
+    // Never covered: they run on every event. `Package versions applied`
+    // judges a commit against its first parent, so a tree that passed for
+    // one base says nothing about another.
+    uncovered: ['dependency-policy', 'package-versions'],
     // ci.yml never waits for a signed head.
     signedHead: null,
   },
@@ -3540,12 +3542,17 @@ test('every required check comes from a job that reports a real result in the sk
     }
     assert.equal(producers.length, 1, `${context} must come from exactly one job`)
     // Any other name that job can have is no required check: the waiting
-    // name of `Playwright G3 scenarios` is the one such name.
+    // name of `Playwright G3 scenarios`, and the name `Package versions
+    // applied` has on a run that is not a pull request's, are the only such
+    // names.
     const [producer] = producers
     for (const other of namesJobCanHave(producer.job, producer.name)) {
       if (other === context) continue
       assert.ok(!required.has(other), `${producer.name} can also report as ${other}`)
-      assert.equal(other, WAITING_G3, `${producer.name} can report as ${other}`)
+      assert.ok(
+        [WAITING_G3, 'Package versions applied (not a pull request)'].includes(other),
+        `${producer.name} can report as ${other}`
+      )
     }
     // Nor may a leg of a matrix job take the name: GitHub names each leg
     // with its matrix values, in the name or after it (after the job ID when
@@ -3634,10 +3641,7 @@ test('workflows and local actions outside the marker never reference it', () => 
     const text = readFileSync(join(repoRoot, file), 'utf8')
     assert.doesNotMatch(text, /tree-pass|TREE_PASS|actions\/cache\/(?:restore|save)@/i, file)
   }
-  for (const file of [
-    '.github/workflows/release.yml',
-    '.github/workflows/build-regtest-images.yml',
-  ]) {
+  for (const file of ['.github/workflows/build-regtest-images.yml']) {
     assert.ok(trackedWorkflows().includes(file), `${file} must still exist and run in full`)
   }
 })
