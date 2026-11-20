@@ -377,7 +377,7 @@ describe('the send form while the account and network stay the same', () => {
       settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }),
       settingsActions.updateSettings({
         locale: 'es',
-        walletConfig: { version: '', statusMessage: '', chainTip: '', disableUtxoTools: true },
+        walletConfig: { version: '', statusMessage: '', chainTip: '' },
         skippedVersion: '1.0.9',
         autoLockTimeId: 3,
         developerMode: true,

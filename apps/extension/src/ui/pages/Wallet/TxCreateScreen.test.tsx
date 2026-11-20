@@ -13,7 +13,7 @@ import TxCreateScreen from './TxCreateScreen';
 
 vi.mock('@qbit/wallet-state', () => ({
   useI18n: vi.fn(),
-  useNavigation: vi.fn(() => ({ navToUtxoTools: vi.fn() })),
+  useNavigation: vi.fn(() => ({})),
   useTxCreateScreenLogic: vi.fn()
 }));
 
@@ -89,7 +89,6 @@ describe('TxCreateScreen fee details', () => {
       qbitUnit: 'QBT',
       t: (key: string, substitutions?: string | string[]) =>
         substitutions ? `${key}:${(Array.isArray(substitutions) ? substitutions : [substitutions]).join(',')}` : key,
-      walletConfig: { disableUtxoTools: true },
       isSpecialLocale: false,
       error: '',
       disabled: false,

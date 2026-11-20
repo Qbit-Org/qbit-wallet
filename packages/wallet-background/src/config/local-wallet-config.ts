@@ -10,7 +10,6 @@ const LOCAL_WALLET_CONFIG: Readonly<WalletConfig> = Object.freeze({
   version: '',
   statusMessage: '',
   chainTip: '',
-  disableUtxoTools: true,
 })
 
 export function getLocalWalletConfig(): WalletConfig {

@@ -92,10 +92,6 @@ export function NavigationProvider({ children }: { children: React.ReactNode }) 
         return (location.state || {}) as T;
       },
 
-      navToUtxoTools: () => {
-        window.open(`${chain.websiteUrl}/utxo?tab=all`);
-      },
-
       navToUrl: (url: string) => {
         window.open(url);
       },

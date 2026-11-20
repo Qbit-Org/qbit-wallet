@@ -23,7 +23,6 @@ export const initialState: SettingsState = {
     version: '',
     statusMessage: '',
     chainTip: '',
-    disableUtxoTools: true,
   },
   skippedVersion: '',
   autoLockTimeId: DEFAULT_LOCKTIME_ID,
