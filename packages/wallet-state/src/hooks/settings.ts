@@ -2,78 +2,15 @@ import compareVersions from 'compare-versions'
 import { useCallback } from 'react'
 
 import { CHAINS_MAP, PlatformEnv, ThemeMode, getExplorerUrl } from '@qbit/wallet-shared'
-import { ChainType, NetworkType } from '@qbit/wallet-types'
+import { ChainType } from '@qbit/wallet-types'
 import { useWallet } from '../context/WalletContext'
 
-import { useI18n } from 'src/context/I18nContext'
 import { AppState } from '..'
 import { settingsActions } from '../reducers/settings'
 import { useAppDispatch, useAppSelector } from './base'
 
 export function useSettingsState(): AppState['settings'] {
   return useAppSelector(state => state.settings)
-}
-
-export function useLocale() {
-  const settings = useSettingsState()
-  return settings.locale
-}
-
-export function useChangeLocaleCallback() {
-  const dispatch = useAppDispatch()
-  const wallet = useWallet()
-  const i18n = useI18n()
-  return useCallback(
-    async (locale: string) => {
-      await wallet.setLocale(locale)
-      await i18n.addResourceBundle(locale)
-      i18n.changeLocale(locale)
-      dispatch(
-        (settingsActions as any).updateSettings({
-          locale,
-        })
-      )
-
-      // @ts-ignore
-      window.location.reload()
-    },
-    [dispatch, wallet]
-  )
-}
-
-export function useNetworkType() {
-  const accountsState = useSettingsState()
-  const chain = CHAINS_MAP[accountsState.chainType]
-  if (chain) {
-    return chain.networkType
-  } else {
-    return NetworkType.MAINNET
-  }
-}
-
-export function useChangeNetworkTypeCallback() {
-  const dispatch = useAppDispatch()
-  const wallet = useWallet()
-  return useCallback(
-    async (type: NetworkType) => {
-      if (type === NetworkType.MAINNET) {
-        await wallet.setChainType(ChainType.QBIT_MAINNET)
-        dispatch(
-          (settingsActions as any).updateSettings({
-            chainType: ChainType.QBIT_MAINNET,
-          })
-        )
-      } else if (type === NetworkType.TESTNET) {
-        await wallet.setChainType(ChainType.QBIT_TESTNET4)
-        dispatch(
-          (settingsActions as any).updateSettings({
-            chainType: ChainType.QBIT_TESTNET4,
-          })
-        )
-      }
-    },
-    [dispatch]
-  )
 }
 
 export function useChainType() {
@@ -110,16 +47,6 @@ export function useQbitUnit() {
 export function useTxExplorerUrl(txid: string) {
   const chain = useChain()!
   return getExplorerUrl(chain, 'tx', txid) ?? ''
-}
-
-export function useGetTxExplorerUrlCallback() {
-  const chain = useChain()!
-  return useCallback((txid: string) => getExplorerUrl(chain, 'tx', txid) ?? '', [chain])
-}
-
-export function useAddressExplorerUrl(address: string) {
-  const chain = useChain()!
-  return getExplorerUrl(chain, 'address', address) ?? ''
 }
 
 export function useIconBaseUrl() {
@@ -193,11 +120,6 @@ export function useAddressTips() {
     homeTip: '',
     sendTip: '',
   }
-}
-
-export function useIsMainnetChain() {
-  const chainType = useChainType()
-  return chainType === ChainType.QBIT_MAINNET
 }
 
 export function useDeveloperMode() {

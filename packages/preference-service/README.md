@@ -5,7 +5,7 @@ Persistent wallet preferences for Qbit applications.
 ## Responsibilities
 
 - Store the selected Qbit network and account.
-- Manage account labels, address types, locale, currency unit, and lock timing.
+- Manage account labels, address types, locale, and lock timing.
 - Store contacts and local wallet display settings.
 - Serialize preference state through a caller-provided storage adapter.
 - Publish preference updates to subscribed consumers.

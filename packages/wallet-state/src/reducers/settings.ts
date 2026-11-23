@@ -1,12 +1,11 @@
 import { DEFAULT_LOCKTIME_ID, DEFAULT_THEME_MODE, ThemeMode, WalletConfig } from '@qbit/wallet-shared'
-import { ChainType, NetworkType } from '@qbit/wallet-types'
+import { ChainType } from '@qbit/wallet-types'
 import { createSlice, Slice } from '@reduxjs/toolkit'
 
-import { resetWalletState, updateVersion } from '../actions/global'
+import { resetWalletState } from '../actions/global'
 
 export interface SettingsState {
   locale: string
-  networkType: NetworkType
   chainType: ChainType
   walletConfig: WalletConfig
   skippedVersion: string
@@ -17,13 +16,11 @@ export interface SettingsState {
 
 export const initialState: SettingsState = {
   locale: 'English',
-  networkType: NetworkType.MAINNET,
   chainType: ChainType.QBIT_MAINNET,
   walletConfig: {
     version: '',
     statusMessage: '',
     chainTip: '',
-    disableUtxoTools: true,
   },
   skippedVersion: '',
   autoLockTimeId: DEFAULT_LOCKTIME_ID,
@@ -43,7 +40,6 @@ const slice: Slice<SettingsState> = createSlice({
       action: {
         payload: {
           locale?: string
-          networkType?: NetworkType
           walletConfig?: WalletConfig
           skippedVersion?: string
           chainType?: ChainType
@@ -59,12 +55,6 @@ const slice: Slice<SettingsState> = createSlice({
     },
   },
   extraReducers: builder => {
-    builder.addCase(updateVersion, state => {
-      // todo
-      if (!state.networkType) {
-        state.networkType = NetworkType.MAINNET
-      }
-    })
     // The background keeps the language and the theme through a reset and
     // returns every other preference to its default.
     builder.addCase(resetWalletState, state => ({

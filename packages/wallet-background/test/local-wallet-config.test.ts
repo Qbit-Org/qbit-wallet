@@ -9,7 +9,6 @@ const LOCAL_CONFIG = {
   version: '',
   statusMessage: '',
   chainTip: '',
-  disableUtxoTools: true,
 }
 
 describe('getLocalWalletConfig', () => {

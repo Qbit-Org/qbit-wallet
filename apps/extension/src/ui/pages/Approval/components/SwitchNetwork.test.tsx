@@ -32,8 +32,7 @@ vi.mock('@/ui/components/WebsiteBar', () => ({ default: () => null }));
 vi.mock('@qbit/wallet-state', () => ({
   useApproval: vi.fn(),
   useChainType: () => 'QBIT_TESTNET4',
-  useI18n: () => ({ t: (key: string) => key }),
-  useNetworkType: () => 1
+  useI18n: () => ({ t: (key: string) => key })
 }));
 
 const APPROVAL_ID = 'switch-network-approval';

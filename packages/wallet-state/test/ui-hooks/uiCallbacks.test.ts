@@ -2,13 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
 
 import {
-  useResetAddressInput,
-  useResetAmountInput,
   useResetFeeRateBar,
   useResetTxState,
   useResetUiTxCreateScreen,
-  useUpdateAddressInput,
-  useUpdateAmountInput,
   useUpdateFeeRateBar,
   useUpdateUiTxCreateScreen,
 } from '../../src/hooks/ui'
@@ -27,28 +23,8 @@ describe('ui update callbacks', () => {
       trigger: callback => callback({ feeRate: 12 }),
     },
     {
-      name: 'useUpdateAddressInput',
-      useHook: useUpdateAddressInput,
-      trigger: callback => callback({ address: 'qb1ztestaccount' }),
-    },
-    {
-      name: 'useUpdateAmountInput',
-      useHook: useUpdateAmountInput,
-      trigger: callback => callback({ amount: '0.1' }),
-    },
-    {
       name: 'useResetFeeRateBar',
       useHook: useResetFeeRateBar,
-      trigger: callback => callback(),
-    },
-    {
-      name: 'useResetAddressInput',
-      useHook: useResetAddressInput,
-      trigger: callback => callback(),
-    },
-    {
-      name: 'useResetAmountInput',
-      useHook: useResetAmountInput,
       trigger: callback => callback(),
     },
     {

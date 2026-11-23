@@ -421,7 +421,8 @@ describe('useTxConfirmScreenLogic', () => {
   it('settles a broadcast that succeeds after the screen unmounted, without navigating', async () => {
     vi.useFakeTimers()
     const wallet = walletWithBroadcast()
-    const { settle, confirm, navigation, store } = confirmThenLeave(wallet)
+    const { settle, confirm, navigation } = confirmThenLeave(wallet)
+    expect(wallet.getAddressBalanceV2).not.toHaveBeenCalled()
 
     await act(async () => {
       settle({ success: true, chain: ChainType.QBIT_REGTEST, txid: TXID, via: 'broadcast' })
@@ -429,9 +430,9 @@ describe('useTxConfirmScreenLogic', () => {
       await confirm()
     })
 
-    // The acceptance settled in the background: the txid is recorded and the
-    // claim the controller consumed is not released.
-    expect(store.getState().transactions.qbitTx.txid).toBe(TXID)
+    // The acceptance settled in the background: the balance is read again and
+    // the claim the controller consumed is not released.
+    expect(wallet.getAddressBalanceV2).toHaveBeenCalled()
     expect(wallet.releaseQbitSendBroadcastClaim).not.toHaveBeenCalled()
     expect(wallet.abandonQbitSendBroadcastClaim).not.toHaveBeenCalled()
     // But the success screen must not replace whatever route the user is on.

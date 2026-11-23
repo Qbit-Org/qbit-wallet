@@ -10,6 +10,10 @@ those steps are skipped the way a
 check still reports success. The one lane whose tests do read every file,
 documentation included, still runs in full.
 
+For G3 only, a pull request that sets the extension version and changes
+nothing else but such documentation counts as well: see
+[Version bumps](#version-bumps).
+
 The logic is in
 [`scripts/security/docs-only-change.mjs`](../scripts/security/docs-only-change.mjs),
 with its tests next to it. The workflows only wire it in.
@@ -40,6 +44,9 @@ say, names the repository's former owner still fails
 
 `Lint` and `Dependency policy` keep running too.
 
+In `playwright-release-gate.yml` a [version bump](#version-bumps) is skipped
+the same way. In `ci.yml` it runs in full.
+
 ## How a run decides
 
 `Tree pass marker`, which runs only for `pull_request` events, ends with the
@@ -68,13 +75,19 @@ The comparison is the tree the run tests against the base it merged into. A
 branch that is behind its base counts only its own changes, and a change
 pushed and then reverted counts for nothing.
 
+Where the step sets `DOCS_ONLY_VERSION_BUMP` to `true`, which only
+`playwright-release-gate.yml` does, the two version files may change as well,
+under the rules in [Version bumps](#version-bumps).
+
 Anything else sets `false`, which is a full run. That includes an empty diff,
 more than 200 files, any git or API error and any output git gives that does
 not parse; the step's summary and notice give the reason, on one line. A
 wiring error fails the step and so `Tree pass marker`, which also means a
-full run: an unset or malformed `TREE_PASS_FORCE_LABEL`, a commit that is not
-an object ID, or a missing or malformed setting the label read needs (the
-token, the API URL, the repository or the pull request number).
+full run: an unset or malformed `TREE_PASS_FORCE_LABEL`, a
+`DOCS_ONLY_VERSION_BUMP` that is set to anything but `true` or `false`, a
+commit that is not an object ID, or a missing or malformed setting the label
+read needs (the token, the API URL, the repository or the pull request
+number).
 
 Every gate step except `verify-workspace`'s reads the output next to the
 marker's `skip`:
@@ -108,7 +121,8 @@ settles it:
 
 1. The `ci:full-run` label: G3 runs in full.
 2. A marker hit: the shards skip their steps.
-3. A docs-only change: the shards skip their steps.
+3. A docs-only change, which here includes a version bump: the shards skip
+   their steps.
 4. A head commit whose signature GitHub has not verified: G3 waits for a
    signed head, and no shard starts.
 5. Otherwise G3 runs in full.
@@ -176,10 +190,79 @@ files:
   `verify-workspace`, reads named Dockerfiles, workflows, the regtest compose
   file and `core-pin.json`.
 - **Packaging and releases.** Package READMEs are in their `files`, CHANGELOGs
-  belong to changesets, and `.changeset/` is read by changesets. `release.yml`
-  reads no documentation.
+  belong to changesets, and `.changeset/` is read by changesets.
+  `Package versions applied` reads the names in `.changeset/` and the two
+  version files, and is never skipped.
 - **Workflows.** `pqc.yml`'s `paths` name `docs/pqc-derivation.md`; no other
   workflow names a document outside a comment.
+
+## Version bumps
+
+The pull request that prepares a release sets the extension version in two
+files and adds a line to the release notes. It is not docs-only, so G3 ran
+its five shards for it, although no scenario depends on which version the
+extension has. In `playwright-release-gate.yml` such a pull request counts as
+a docs-only change: the step `Check for a docs-only change` sets
+`DOCS_ONLY_VERSION_BUMP` to `true` there, and `docs-only` is then `true` also
+when all of these hold:
+
+1. Every changed file is either in the allowlist above or one of the two
+   version files, `apps/extension/package.json` and
+   `apps/extension/build/_raw/manifest/_base_v3.json`, and the rules of
+   [How a run decides](#how-a-run-decides) hold for all of them.
+2. Both version files are modified. The build takes the version from
+   `package.json` alone, so nothing else would notice the base manifest's
+   falling behind.
+3. Each version file differs from the base in one line, and as JSON only in
+   the value of its top-level `version`. Both are read from the base and from
+   the merge under test.
+4. Each raises its version from one `x.y.z` version to a higher one, and both
+   set the same. Each part is a number from 0 to 65535, the highest Chrome
+   accepts in a manifest, with no leading zero. A package version with a
+   `-beta` suffix is not of that form, so a change to or from one runs in
+   full.
+5. Neither version-keyed source below, read from the merge under test, holds
+   that version anywhere in its text, and the wallet configuration sets
+   `version` once, to the empty string.
+
+The summary of `Tree pass marker` then says "as a version bump" and gives the
+version. The gates' summaries in this workflow say "only documentation that no
+skipped step reads, or only that and the extension version". The label
+`ci:full-run` runs everything, as for a docs-only change.
+
+**What reads the version.** At `2821d9ee` on 2026-11-19:
+
+| Reader                                                   | What it does with the version                                                                                                                                               |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/extension/gulpfile.js`                             | takes it from `package.json`, names the package after it, and writes it into the built manifest over the base manifest's own                                                |
+| `apps/extension/build/webpack.common.config.js`          | defines it as text in the bundle, which the About and Settings screens and a recovery error report show                                                                     |
+| `useVersionInfo` in `@qbit/wallet-state`                 | compares it with the bundled wallet configuration's `version`, which is empty, so no update prompt shows                                                                    |
+| the home screen's "what's new" notice                    | after an update, shows the bundled notice whose key is the running version; there is none                                                                                   |
+| `scripts/reproducible-extension-build.mjs`, package test | name the package after it, and check the built manifest's version against `package.json`; they run in `Build and reproduce the extension`, which a version bump never skips |
+| the G3 scenarios                                         | one page object finds the About screen's label by its "Version: " prefix; none names a version                                                                              |
+
+**Version-keyed sources.** Two bundled files can make a release act on its own
+version, both in `packages/wallet-background/src/config/`:
+
+- `local-version-notices.ts` holds the notices, keyed by the version that
+  shows them. A notice for the next release is added while the extension
+  still has the earlier version, so the pull request that sets the version is
+  the first whose build shows it. Rule 5 runs G3 in full for it: a version
+  bump to a version that appears anywhere in the file, in a comment or as
+  part of a longer one, runs in full.
+- `local-wallet-config.ts` holds the `version` that the update prompt compares
+  with the running one, by order. A version bump can cross that version
+  without naming it, so a version bump counts only while the file leaves it
+  empty, which turns the prompt off: its text must hold the word `version`
+  once, as `version: ''`. Anything else there runs every version bump in
+  full.
+
+**Why only G3.** The lanes of `Typecheck, test, and build` build and package
+the extension under its version, and check the built manifest's version
+against `package.json`, so `ci.yml` does not set `DOCS_ONLY_VERSION_BUMP` and
+runs a version bump in full. The wiring test fails if a workflow that runs the reproducible build
+sets it, and if anything but the step itself does, since a step inherits its
+workflow's and its job's settings.
 
 ## A tripwire for new readers
 
@@ -240,6 +323,11 @@ so it does not force a full run. The label also turns off markers (see
 - **A reader the search missed** sees a changed document only on the next
   full run. The tripwire above narrows this, and `ci:full-run` removes the
   doubt for one pull request.
+- **Code that acts on the version outside the two version-keyed sources**,
+  such as a storage migration that compares the running version with a
+  literal, is not seen by a version bump's G3 run. No tripwire covers it. The
+  release branch's pull request into `main` runs G3 in full on the new
+  version before the release is tagged.
 - **Inputs outside the tree** do not matter here: the steps did not run.
 - **Pull requests from forks** are judged the same way. The verdict comes
   from the merge commit under test and the labels, never from a cache, so it
@@ -253,7 +341,12 @@ so it does not force a full run. The label also turns off markers (see
   empty change, renames, copies, deletions, an executable file, symlinks, a
   submodule, binary files, too many files, a merge that is not the head's, a
   checkout without the base), the label, the event, API failures, wiring
-  errors, a reason over several lines, the command line and the tripwire. `pnpm test:security-tooling` runs it, and the
+  errors, a reason over several lines, the command line and the tripwire. It
+  also covers version bumps: alone and with documentation, with the setting
+  on, off and malformed, each way a version file can change in more than its
+  version, versions that differ, are not `x.y.z`, have a part above 65535 or
+  do not go up, a notice that names the version, a configuration whose
+  version is not empty, and a version-keyed source that is missing. `pnpm test:security-tooling` runs it, and the
   `Dependency policy` job runs that on every event.
 - `scripts/security/tree-pass-marker.test.mjs` pins the wiring: the step and
   output in `Tree pass marker`, the `DOCS_ONLY` input and the summary of every
@@ -272,3 +365,9 @@ so it does not force a full run. The label also turns off markers (see
 - To gate another job, give its gate step the `DOCS_ONLY` input and the same
   script as the others; the wiring tests check every gate in the marked
   workflows.
+- `versionBump` in the same test says which workflows set
+  `DOCS_ONLY_VERSION_BUMP`. The test checks the step's settings and the
+  wording of each gate against it, that nothing else in the workflow sets it,
+  and that no such workflow runs the reproducible build. A new file that holds the version goes in
+  `VERSION_FILES`, and a new source that acts on it in
+  `VERSION_KEYED_SOURCES`, both in `docs-only-change.mjs` and above.

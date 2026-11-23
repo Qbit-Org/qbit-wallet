@@ -1,6 +1,6 @@
 {
   "name": "@qbit/keyring-service",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "description": "Keyring service for Qbit HD, simple, readonly, watch-address, and cold wallets",
   "main": "lib/index.js",
@@ -53,7 +53,7 @@
     "@metamask/browser-passworder": "6.0.0",
     "@metamask/obs-store": "^7.0.0",
     "@qbit-oss/pqc": "0.1.1",
-    "@qbit-oss/protocol": "0.1.1",
+    "@qbit-oss/protocol": "0.1.2",
     "@qbit/wallet-core": "workspace:*",
     "@qbit/wallet-shared": "workspace:*",
     "@qbit/wallet-storage": "workspace:*",

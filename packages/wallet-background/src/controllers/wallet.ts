@@ -132,7 +132,6 @@ import {
   type QbitUtxoSnapshot,
   QbitSendBroadcastClaim,
   PublicKeyUserToSignInput,
-  RateUsStatus,
   RiskType,
   SESSION_EVENTS,
   SignMessageType,
@@ -235,7 +234,6 @@ import {
   findActiveQbitAddressGroups,
   findQbitSpentOutpoints,
   getQbitAccountHistory,
-  getQbitAddressUtxos,
   getQbitAddressUtxosClassifiedPastLimit,
   getQbitAddressSummaries,
   getQbitRawTransaction,
@@ -344,7 +342,6 @@ import {
   AddressFlagType,
   BRAND_ALIAN_TYPE_TEXT,
   KEYRING_TYPES,
-  NETWORK_TYPES,
 } from '@qbit/wallet-shared'
 import { isPlainObject } from 'lodash'
 import log from 'loglevel'
@@ -1224,6 +1221,53 @@ function qbitProviderPsbtAutoFinalized(
 }
 
 /**
+ * Refuse, before approval and before any signature counter moves, a provider
+ * PSBT whose outputs exceed its inputs by `shortfall` (a draft others fund
+ * later) unless the account can sign it as one. Every input the account signs
+ * must name 0x81 or 0x83: either signature commits to its own input only, so
+ * the inputs that fund the rest can be added after it, and one under the
+ * default type would commit to an unfunded transaction no input can complete.
+ * Only a signer in this wallet signs one, since an external signer may finalize
+ * or refuse it after its own key use; and such a draft cannot be finalized,
+ * so `autoFinalized: true` is refused here, as its approval would end in a
+ * failure after the signature was spent.
+ */
+function assertQbitProviderShortfallSigning(
+  shortfall: bigint,
+  keys: readonly QbitP2mrSigningKeyInput[],
+  signMethod: AccountSignMethod,
+  autoFinalized: boolean | undefined
+): void {
+  const unfunded = `its outputs exceed its inputs by ${shortfall} sats`
+  const committed = keys.find(
+    key => key.hashType === undefined || !P2MR_PARTIAL_SIGHASH_TYPES.has(key.hashType)
+  )
+  if (committed) {
+    const type =
+      committed.hashType === undefined
+        ? 'the default sighash type'
+        : `sighash type 0x${committed.hashType.toString(16)}`
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `PSBT cannot be signed: ${unfunded}, and input ${committed.inputIndex} is signed under ` +
+        `${type}; every input this account signs in a PSBT short of funds must name 0x81 or 0x83`
+    )
+  }
+  if (signMethod !== AccountSignMethod.Local) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `PSBT cannot be signed: ${unfunded}, and this account's signer is not in this wallet`
+    )
+  }
+  if (autoFinalized === true) {
+    throw new WalletError(
+      ErrorCodes.INVALID_PARAMS,
+      `autoFinalized needs a PSBT this wallet can finalize after signing: ${unfunded}`
+    )
+  }
+}
+
+/**
  * Refuse a provider PSBT whose pay-to-anchor outputs carry more, together,
  * than `QBIT_P2A_MAX_VALUE`. Anyone can spend such an output, so the bound
  * limits what a website can move out of the wallet through one.
@@ -1566,9 +1610,6 @@ export class WalletController extends BaseController {
 
   setBackgroundInited = async (value: boolean) => {
     this.backgroundInited = value
-  }
-  getBackgroundInited = async () => {
-    return this.backgroundInited
   }
   /**
    * Record why start-up stopped. Start-up runs once per worker start, so the
@@ -2355,10 +2396,6 @@ export class WalletController extends BaseController {
     ) {
       throw new Error('external Qbit signing lock is not active')
     }
-  }
-
-  getDesc = () => {
-    return 'desc_test'
   }
 
   /* wallet */
@@ -3413,14 +3450,6 @@ export class WalletController extends BaseController {
     })
   }
 
-  getCurrency = () => {
-    return preferenceService.getCurrency()
-  }
-
-  setCurrency = (currency: string) => {
-    preferenceService.setCurrency(currency)
-  }
-
   /* keyrings */
 
   resetAllData = async () => {
@@ -4308,11 +4337,9 @@ export class WalletController extends BaseController {
     return descriptors
   }
 
-  getPreMnemonics = () => keyringService.getPreMnemonics()
   generatePreMnemonic = async (strength?: 128 | 256) => {
     return await keyringService.generatePreMnemonic(strength)
   }
-  removePreMnemonics = () => keyringService.removePreMnemonics()
   /** Tracked as a wallet addition under way (see trackWalletAddition). */
   createKeyringWithMnemonics = (
     ...args: Parameters<WalletController['performCreateKeyringWithMnemonics']>
@@ -4362,7 +4389,6 @@ export class WalletController extends BaseController {
     )
     const keyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
     await this.selectKeyring(keyring)
-    preferenceService.setShowSafeNotice(true)
   }
 
   createTmpKeyringWithMnemonics = async (
@@ -6609,7 +6635,6 @@ export class WalletController extends BaseController {
     )
     const walletKeyring = this.displayedKeyringToWalletKeyring(displayedKeyring, keyringIndex)
     await this.selectKeyring(walletKeyring)
-    preferenceService.setShowSafeNotice(true)
 
     if (discovery.activeIndexes.length > 0) {
       // The keyring this restore added, not the last slot: another wallet
@@ -6657,30 +6682,6 @@ export class WalletController extends BaseController {
         floorError: error instanceof Error ? error.message : String(error),
       }
     }
-  }
-
-  // No hardware or cold signer can produce qbit's SLH-DSA signatures, so a
-  // cold wallet cannot be created (#53). keyring-service keeps
-  // ColdWalletKeyring registered, so a vault that already holds one decodes.
-  createKeyringWithColdWallet = async (
-    _xpub: string,
-    _addressType: AddressType,
-    _alianName?: string,
-    _hdPath?: string,
-    _accountCount?: number
-  ): Promise<WalletKeyring> => {
-    throw new Error(t('hardware_wallet_not_supported'))
-  }
-
-  // A BIP32 xpub derives secp256k1 keys only, never a qbit P2MR address, so
-  // no account can come from one (#53).
-  deriveAccountsFromXpub = async (
-    _xpub: string,
-    _addressType: AddressType,
-    _hdPath?: string,
-    _accountCount?: number
-  ): Promise<{ pubkey: string; address: string }[]> => {
-    throw new Error(t('hardware_wallet_not_supported'))
   }
 
   // Queued with migration and other chain-state work: a migration start that
@@ -7360,10 +7361,6 @@ export class WalletController extends BaseController {
     return undefined
   }
 
-  getKeyringByType = (type: string) => {
-    return keyringService.getKeyringByType(type)
-  }
-
   // Account derivations in flight, keyed by keyring identity. The chain-state
   // queue serializes derivations but does not deduplicate them, and the UI's
   // in-flight lock only spans one screen mount: navigating away and back,
@@ -7462,11 +7459,6 @@ export class WalletController extends BaseController {
       floorScanPending: true,
       floorScanError: floorScanError ?? 'restore floor scan did not lift the signing gate',
     }
-  }
-
-  getAccountsCount = async () => {
-    const accounts = await keyringService.getAccounts()
-    return accounts.filter(x => x).length
   }
 
   private publishAccountChange = (account: Account): void => {
@@ -8146,6 +8138,21 @@ export class WalletController extends BaseController {
     const consolidationOutputCounts =
       this.qbitConsolidationBatches.get(qbitBroadcastIdentity.txid) ??
       toSignData.qbitConsolidation?.fundingOutputCounts
+    // A PSBT whose outputs exceed its inputs is a draft for others to fund,
+    // which no send, plan, recovery or consolidation of the wallet's builds.
+    // Only a website's signs one: its exact bytes, admitted for its open
+    // approval, which prepared it to come back unfinalized. Anything else
+    // handed back with such bytes is refused before any read or key use.
+    if (
+      decodeQbitPsbt(psbt, { allowOutputsAboveInputs: true }).shortfall !== undefined &&
+      (provider.claim !== undefined ||
+        !provider.skipsCheck ||
+        migrationContext !== undefined ||
+        consolidationOutputCounts !== undefined ||
+        toSignData.autoFinalized !== false)
+    ) {
+      throw new Error('This transaction spends more than its inputs and cannot be signed here')
+    }
     if (consolidationOutputCounts) {
       await this.assertQbitConsolidationInputsUnspent(chain, psbt, consolidationOutputCounts)
     }
@@ -8470,15 +8477,6 @@ export class WalletController extends BaseController {
     await contactBookService.replaceContact(address, chain, data)
   }
 
-  listContact = (includeAlias = true): ContactBookItem[] => {
-    const list = contactBookService.listContacts()
-    if (includeAlias) {
-      return list
-    } else {
-      return list.filter(item => !item.isAlias)
-    }
-  }
-
   listContacts = (): ContactBookItem[] => {
     return contactBookService.listContacts()
   }
@@ -8493,14 +8491,6 @@ export class WalletController extends BaseController {
 
   getNextAlianName = (keyring: WalletKeyring) => {
     return this._generateAlianName(keyring.type, keyring.accounts.length + 1)
-  }
-
-  getHighlightWalletList = () => {
-    return preferenceService.getWalletSavedList()
-  }
-
-  updateHighlightWalletList = list => {
-    return preferenceService.updateWalletSavedList(list)
   }
 
   getAllAlianName = (): (ContactBookItem | undefined)[] => {
@@ -8523,28 +8513,9 @@ export class WalletController extends BaseController {
     return preferenceService.updateIsFirstOpen()
   }
 
-  reportErrors = (error: string) => {
-    console.error('report not implemented')
-  }
-
   getNetworkType = () => {
     const chainType = this.getChainType()
     return CHAINS_MAP[chainType]!.networkType
-  }
-
-  setNetworkType = async (networkType: NetworkType) => {
-    if (networkType === NetworkType.MAINNET) {
-      await this.setChainType(ChainType.QBIT_MAINNET)
-    } else if (networkType === NetworkType.REGTEST) {
-      await this.setChainType(ChainType.QBIT_REGTEST)
-    } else {
-      await this.setChainType(ChainType.QBIT_TESTNET4)
-    }
-  }
-
-  getNetworkName = () => {
-    const networkType = this.getNetworkType()
-    return NETWORK_TYPES[networkType]!.name
   }
 
   getQbitNetworkName = () => chainTypeToQbitNetworkName(this.getChainType())
@@ -9255,7 +9226,7 @@ export class WalletController extends BaseController {
   /**
    * The reads behind classifying any address's outputs, shared by the
    * balance (`getAddressBalanceV2`) and every read of outputs
-   * (`qbitAccountUtxosOn`, `getAddressUtxo`, the recovery sources): one
+   * (`qbitAccountUtxosOn`, the recovery sources): one
    * limiter per API client, so the wallet keeps at most
    * `QBIT_CLASSIFY_MAX_READS_IN_FLIGHT` of them in flight to one explorer,
    * and what funding transactions said of their outputs, so a balance poll of
@@ -9271,7 +9242,7 @@ export class WalletController extends BaseController {
    * the total alone, the split unknown, and backs off
    * (`getQbitSpendableBalanceV2`). Every
    * read of outputs a send, sweep or plan may spend (`qbitAccountUtxosOn`,
-   * `getAddressUtxo`, the recovery sources) still reads afresh an output that
+   * the recovery sources) still reads afresh an output that
    * is not a coinbase output and is younger than a coinbase must be to
    * mature, and its answer replaces the kept one; so after one wrong
    * `is_coinbase` answer the balance can count a reward younger than 1,000
@@ -11068,7 +11039,10 @@ export class WalletController extends BaseController {
     const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
     let totalOutputValue = 0n
     let changeValue = 0n
-    for (const output of decodeQbitPsbt(psbt).outputs) {
+    // The unsigned transaction's outputs, as decoding gives them, also for a
+    // draft whose outputs exceed its inputs: its fee is below zero, and it
+    // moves nothing under the migration's assertion.
+    for (const output of psbtUnsignedTransaction(psbt).outputs) {
       totalOutputValue += output.value
       if (qbitBytesToHex(output.scriptPubKey) === accountScriptPubKey) {
         changeValue += output.value
@@ -11225,7 +11199,13 @@ export class WalletController extends BaseController {
     // network so signing stays bound to it.
     const chain = this.getChainType()
     await qbitSendGuardService.assertNoOverlap(chain, qbitPsbtOutpoints(psbt), qbitPsbtTxid(psbt))
-    const summary = decodeQbitPsbt(psbt)
+    // Read with a known funding shortfall reported rather than refused: the
+    // plan below decides whether this account may sign such a draft
+    // (`assertQbitProviderShortfallSigning`). With an input's value unknown,
+    // neither a fee nor a shortfall is known, and the plan's validation
+    // refuses the PSBT, as every input needs its witness UTXO.
+    const summary = decodeQbitPsbt(psbt, { allowOutputsAboveInputs: true })
+    const shortfall = summary.shortfall
     assertQbitProviderAnchorValue(summary.outputs)
     const accountLeafScript = account.p2mr.leafScript.toLowerCase()
     const accountScriptPubKey = account.p2mr.scriptPubKey.toLowerCase()
@@ -11264,13 +11244,27 @@ export class WalletController extends BaseController {
     if (qbitP2mrSigningKeys.length === 0) {
       throw new Error('PSBT has no inputs signable by the active Qbit account')
     }
+    if (shortfall !== undefined) {
+      assertQbitProviderShortfallSigning(
+        shortfall,
+        qbitP2mrSigningKeys,
+        getAccountCapabilities(account).signMethod,
+        options.autoFinalized
+      )
+    }
 
     const signingKeys = qbitSigningKeysFromSerializable(qbitP2mrSigningKeys)
+    // The library refuses a shortfall again here unless every plan names
+    // 0x81 or 0x83 (`p2mrSigningOptionsFor`).
     validateP2mrSigningPlans({ psbt, keys: signingKeys, ...p2mrSigningOptionsFor(signingKeys) })
     // Decided before the budget preflight, which can issue a restored-floor
     // challenge, so a refusal leaves none for this PSBT; the request's
-    // failure cleanup releases those of earlier signPsbts entries.
-    const autoFinalized = qbitProviderPsbtAutoFinalized(psbt, signingKeys, options.autoFinalized)
+    // failure cleanup releases those of earlier signPsbts entries. A draft
+    // short of funds is never finalized: it comes back for others to fund.
+    const autoFinalized =
+      shortfall !== undefined
+        ? false
+        : qbitProviderPsbtAutoFinalized(psbt, signingKeys, options.autoFinalized)
 
     const protectedAssetCount =
       getAccountCapabilities(account).signMethod === AccountSignMethod.Local
@@ -11311,11 +11305,23 @@ export class WalletController extends BaseController {
     const toSignInputs = [...new Set(qbitP2mrSigningKeys.map(key => key.inputIndex))].map(
       index => ({ index, publicKey })
     )
-    const partialDetails = qbitPartialSignatureDetails(
-      qbitP2mrSigningKeys,
-      summary.outputs,
-      this.getNetworkType()
-    )
+    const partialDetails = [
+      // The gap for the outputs shown, ahead of what each signature commits
+      // to, excluding any network fee. Outputs a signature does not lock in
+      // can still change or go, so it is no fee, no amount anyone must add,
+      // and no promise of payment.
+      ...(shortfall !== undefined
+        ? [
+            {
+              label: t('qbit_funding_shortfall'),
+              value: Number(shortfall),
+              type: PsbtActionDetailType.SATOSHIS,
+              warning: true,
+            },
+          ]
+        : []),
+      ...qbitPartialSignatureDetails(qbitP2mrSigningKeys, summary.outputs, this.getNetworkType()),
+    ]
     return {
       psbtHex: qbitPsbtToHex(psbt),
       toSignInputs,
@@ -11341,7 +11347,11 @@ export class WalletController extends BaseController {
           : partialDetails.length > 0
             ? {
                 name: t('sign_transaction'),
-                description: t('qbit_partial_signature_description'),
+                description: t(
+                  shortfall !== undefined
+                    ? 'qbit_funding_shortfall_description'
+                    : 'qbit_partial_signature_description'
+                ),
                 details: partialDetails,
                 type: PsbtActionType.CUSTOM,
               }
@@ -13238,32 +13248,6 @@ export class WalletController extends BaseController {
     }
   }
 
-  getEditingKeyring = async () => {
-    const editingKeyringIndex = preferenceService.getEditingKeyringIndex()
-    const displayedKeyrings = await keyringService.getAllDisplayedKeyrings()
-    const displayedKeyring = displayedKeyrings[editingKeyringIndex]!
-    return this.displayedKeyringToWalletKeyring(displayedKeyring, editingKeyringIndex)
-  }
-
-  setEditingKeyring = async (index: number) => {
-    preferenceService.setEditingKeyringIndex(index)
-  }
-
-  getEditingAccount = async () => {
-    const account = preferenceService.getEditingAccount()
-    return account
-  }
-
-  setEditingAccount = async (account: Account) => {
-    preferenceService.setEditingAccount(account as any)
-  }
-
-  getAddressUtxo = async (address: string) => {
-    return getQbitAddressUtxos(this.getQbitApiClient(), address, {
-      fundingTxReads: this.qbitFundingTxReads,
-    })
-  }
-
   getConnectedSites = (): ConnectedSite[] => {
     const data = permissionService.getConnectedSites()
     return data
@@ -13622,8 +13606,12 @@ export class WalletController extends BaseController {
     { statedRecipients, suppliedByWebsite = false }: DecodePsbtOptions = {}
   ): DecodedPsbt => {
     const psbt = qbitPsbtFromHex(psbtHex)
-    const summary = decodeQbitPsbt(psbt)
+    // A draft whose outputs exceed its inputs is reviewed too, with its
+    // shortfall: it has no fee yet, and is not completed. Whether it may be
+    // signed is decided elsewhere (`assertQbitProviderShortfallSigning`).
+    const summary = decodeQbitPsbt(psbt, { allowOutputsAboveInputs: true })
     const fee = Number(summary.fee ?? 0n)
+    const fundingShortfall = summary.shortfall === undefined ? undefined : Number(summary.shortfall)
     const finalTxVBytes = qbitPsbtReviewVsize(psbt, summary)
 
     const inputInfos = summary.inputs.map(input => {
@@ -13712,6 +13700,7 @@ export class WalletController extends BaseController {
       checkFeeShareWithoutSize: suppliedByWebsite,
       lockedOutputs,
       anyoneCanPayAll,
+      ...(fundingShortfall !== undefined ? { fundingShortfall } : {}),
     })
     // The wallet's outputs are known only from the scripts and addresses it
     // derives for its accounts, as their 'wallet' role is: the PSBT's own
@@ -13761,6 +13750,7 @@ export class WalletController extends BaseController {
       recommendedFeeRate: recommendedFeeRate ?? QBIT_FALLBACK_FEE_RATE,
       shouldWarnFeeRate: (spendSummary.feeAssessment?.reasons.length ?? 0) > 0,
       isCompleted,
+      ...(fundingShortfall !== undefined ? { fundingShortfall } : {}),
       spendSummary,
       outputOwners,
       version: summary.version,
@@ -13823,6 +13813,9 @@ export class WalletController extends BaseController {
           fee,
           totalInput: itemTotalInput,
           isCompleted,
+          ...(decoded.fundingShortfall !== undefined
+            ? { fundingShortfall: decoded.fundingShortfall }
+            : {}),
           hasSighashNone: false,
           parseError: false,
           risks: decoded.risks,
@@ -13983,10 +13976,6 @@ export class WalletController extends BaseController {
   ): Promise<SignedData> =>
     this.withCallingUiPort(uiPort, () => this.signPsbtV2(toSignData, options))
 
-  expireUICachedData = async (address: string) => {
-    return preferenceService.expireUICachedData(address)
-  }
-
   getWalletConfig = async () => {
     return getLocalWalletConfig()
   }
@@ -14029,14 +14018,6 @@ export class WalletController extends BaseController {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     //@ts-ignore
     psbt.__CACHE.__UNSAFE_SIGN_NONSEGWIT = enabled
-  }
-
-  getShowSafeNotice = () => {
-    return preferenceService.getShowSafeNotice()
-  }
-
-  setShowSafeNotice = (show: boolean) => {
-    return preferenceService.setShowSafeNotice(show)
   }
 
   getVersionDetail = async (version: string) => {
@@ -14092,10 +14073,6 @@ export class WalletController extends BaseController {
 
   setLockOnWindowsClosed = async (enabled: boolean) => {
     return preferenceService.setLockOnWindowsClosed(enabled)
-  }
-
-  getOpenInSidePanel = async () => {
-    return preferenceService.getOpenInSidePanel()
   }
 
   getDeveloperMode = async () => {
@@ -14638,43 +14615,6 @@ export class WalletController extends BaseController {
     if (!enabled) return false
     await this.lockWallet()
     return true
-  }
-
-  // Rate Us Status
-  getRateUsStatus = (): RateUsStatus => {
-    return preferenceService.getRateUsStatus()
-  }
-
-  setHasRated = (hasRated: boolean) => {
-    return preferenceService.setHasRated(hasRated)
-  }
-
-  setRatePromptDismissedAt = (timestamp: number | null) => {
-    return preferenceService.setRatePromptDismissedAt(timestamp)
-  }
-
-  setHasShownSecondPrompt = (hasShown: boolean) => {
-    return preferenceService.setHasShownSecondPrompt(hasShown)
-  }
-
-  resetRateUsStatus = async () => {
-    return preferenceService.resetRateUsStatus()
-  }
-
-  getGuideReaded = async () => {
-    return preferenceService.getGuideReaded()
-  }
-
-  setGuideReaded = async () => {
-    preferenceService.setGuideReaded(true)
-  }
-
-  getAcceptLowFeeMode = async () => {
-    return preferenceService.getAcceptLowFeeMode()
-  }
-
-  setAcceptLowFeeMode = async (accept: boolean) => {
-    preferenceService.setAcceptLowFeeMode(accept)
   }
 
   getEnableRBF = async () => {

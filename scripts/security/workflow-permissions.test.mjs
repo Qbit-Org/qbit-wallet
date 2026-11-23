@@ -212,7 +212,8 @@ test('every tracked workflow declares its token permissions and scrubs checkout 
   const result = auditWorkflowPermissions(workflows)
   assert.deepEqual(result.errors, [])
   assert.equal(result.workflowCount, workflows.length)
-  // The audit finds release.yml's checkout, the one #262 was about.
-  const release = workflows.find(({ file }) => file === '.github/workflows/release.yml')
-  assert.ok(auditWorkflowPermissions([release]).checkoutCount >= 1)
+  // The audit finds one workflow's checkouts by itself, the kind of step
+  // whose credentials #262 was about.
+  const ci = workflows.find(({ file }) => file === '.github/workflows/ci.yml')
+  assert.ok(auditWorkflowPermissions([ci]).checkoutCount >= 1)
 })

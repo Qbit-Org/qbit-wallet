@@ -118,7 +118,6 @@ vi.mock('@/shared/initPlatformEnv', () => ({ initPlatformEnv: () => undefined })
 vi.mock('@/shared/utils/i18n', () => ({ i18nService: { init: () => undefined } }));
 vi.mock('@/ui/styles/global.less', () => ({}));
 vi.mock('./components/Responsive', async () => ({ AppDimensions: await passThrough() }));
-vi.mock('./providers/DeviceProvider', async () => ({ DeviceProvider: await passThrough() }));
 vi.mock('./providers/I18nProvider', async () => ({ I18nProvider: await passThrough() }));
 vi.mock('./providers/ToolsProvider', async () => ({ ToolsProvider: await passThrough() }));
 vi.mock('./utils/appConfig', () => ({ initializeAppConfig: () => undefined }));

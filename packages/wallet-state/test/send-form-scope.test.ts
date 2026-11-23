@@ -54,10 +54,10 @@ const keyring = (accounts: ReturnType<typeof account>[]) => ({
   hdPath: '',
 })
 
-/** The send form's four parts, as the store holds them. */
+/** The send form's two parts, as the store holds them. */
 function sendForm(state: { ui: UIState }) {
-  const { uiTxCreateScreen, feeRateBar, addressInput, amountInput } = state.ui
-  return { uiTxCreateScreen, feeRateBar, addressInput, amountInput }
+  const { uiTxCreateScreen, feeRateBar } = state.ui
+  return { uiTxCreateScreen, feeRateBar }
 }
 
 const INITIAL_FORM = sendForm({ ui: initialState })
@@ -72,21 +72,16 @@ const FILLED_FORM = {
   feeRateBar: {
     feeRate: 3.5,
     feeRateInputVal: '3.5',
-    enableLowFeeRate: true,
     feeOptionIndex: 3,
     showCustomInput: true,
     feeRateSource: null,
   },
-  addressInput: { address: 'tq1ztyped' },
-  amountInput: { amount: '1.25' },
 }
 
 /** What a user leaves in the send form. */
 function fillSendForm(store: Store): void {
   store.dispatch(uiActions.updateTxCreateScreen(FILLED_FORM.uiTxCreateScreen))
   store.dispatch(uiActions.updateFeeRateBar(FILLED_FORM.feeRateBar))
-  store.dispatch(uiActions.updateAddressInput(FILLED_FORM.addressInput))
-  store.dispatch(uiActions.updateAmountInput(FILLED_FORM.amountInput))
   expect(sendForm(store.getState())).toEqual(FILLED_FORM)
 }
 
@@ -175,7 +170,7 @@ describe('the send form when the account or network changes', () => {
     expect(sendForm(store.getState())).toEqual(INITIAL_FORM)
   })
 
-  it('clears the form, the fee bar and the inputs when another account is selected', () => {
+  it('clears the form and the fee bar when another account is selected', () => {
     const store = pageWithFilledForm()
 
     store.dispatch(accountActions.setCurrent(SECOND))
@@ -330,7 +325,6 @@ describe('the send form while the account and network stay the same', () => {
     const store = pageWithFilledForm()
 
     store.dispatch(accountActions.setCurrent({ ...FIRST, alianName: 'Renamed', balance: 7 }))
-    store.dispatch(accountActions.setCurrentAccountName('Renamed again'))
     store.dispatch(accountActions.setCurrentAddressFlag(2))
     store.dispatch(accountActions.updateAccountName({ ...FIRST, alianName: 'Third name' }))
     store.dispatch(accountActions.setAccounts([FIRST, SECOND]))
@@ -377,16 +371,13 @@ describe('the send form while the account and network stay the same', () => {
       settingsActions.updateSettings({ chainType: ChainType.QBIT_TESTNET4 }),
       settingsActions.updateSettings({
         locale: 'es',
-        walletConfig: { version: '', statusMessage: '', chainTip: '', disableUtxoTools: true },
+        walletConfig: { version: '', statusMessage: '', chainTip: '' },
         skippedVersion: '1.0.9',
         autoLockTimeId: 3,
         developerMode: true,
       }),
-      globalActions.update({ isReady: true, isBooted: true, tab: 'home' }),
+      globalActions.update({ isReady: true, isBooted: true }),
       globalActions.reset(),
-      accountActions.pendingLogin(),
-      accountActions.rejectLogin(),
-      accountActions.setAddressSummary({ address: FIRST.address, totalSatoshis: 1 }),
       accountActions.setBalanceV2({
         address: FIRST.address,
         balance: {
@@ -400,13 +391,11 @@ describe('the send form while the account and network stay the same', () => {
       accountActions.setBalanceError({ address: FIRST.address, requestId: 2 }),
       accountActions.setHistory({ address: FIRST.address, list: [], total: 0 }),
       accountActions.setHistoryError({ address: FIRST.address }),
-      accountActions.expireHistory(),
       transactionsActions.setUtxos({
         address: FIRST.address,
         chain: ChainType.QBIT_TESTNET4,
         utxos: [],
       }),
-      uiActions.setNavigationSource(0),
       uiActions.setBalanceHidden(true),
       uiActions.setBalanceDetailOpen(true),
     ]) {
@@ -545,8 +534,8 @@ describe('scopeSendForm', () => {
     expect(scopeSendForm(filled, '', ChainType.QBIT_MAINNET)).toBe(filled)
   })
 
-  it('clears only the form, the fee bar and the inputs for another account', () => {
-    const state = { ...filled, isBalanceHidden: true, navigationSource: 0 }
+  it('clears only the form and the fee bar for another account', () => {
+    const state = { ...filled, isBalanceHidden: true, balanceDetailOpen: true }
 
     expect(scopeSendForm(state, SECOND.address, ChainType.QBIT_TESTNET4)).toEqual({
       ...state,

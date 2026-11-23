@@ -669,3 +669,48 @@ describe('an input signed under SIGHASH_ALL|ANYONECANPAY (#211)', () => {
     expect(spendSummary.netSpend).toBe(500_000)
   })
 })
+
+describe('a draft whose outputs exceed its inputs', () => {
+  // The wallet's one input of 50,000 under 0x83, locking in output 0, which
+  // pays it 80,000: the outputs are 30,000 above the inputs.
+  const draft = (overrides: Partial<QbitPsbtSpendSummaryParams> = {}) =>
+    params({
+      inputs: [input(OWN_SCRIPT, 50_000, 'qbrt1zown')],
+      outputs: [output(OWN_SCRIPT, 80_000, 'qbrt1zown')],
+      fee: 0,
+      feeRate: 0,
+      isCompleted: false,
+      statedRecipients: [],
+      lockedOutputs: new Map([[0, 50_000]]),
+      fundingShortfall: 30_000,
+      checkFeeShareWithoutSize: true,
+      ...overrides,
+    })
+
+  it('reports what can leave the wallet, and judges no fee', () => {
+    const { spendSummary, risks } = summarizeQbitPsbtSpend(draft())
+
+    // Credited only up to the input that locks the payout in.
+    expect(spendSummary.walletOutputValue).toBe(50_000)
+    expect(spendSummary.netSpend).toBe(0)
+    expect(spendSummary.feeAssessment).toBeUndefined()
+    expect(risks).toEqual([])
+  })
+
+  it('reports no spend without the shortfall, as for an input of unknown value', () => {
+    const { spendSummary } = summarizeQbitPsbtSpend(draft({ fundingShortfall: undefined }))
+
+    expect(spendSummary.netSpend).toBeUndefined()
+    expect(spendSummary.feeAssessment).toBeUndefined()
+  })
+
+  it.each([
+    ['zero', { fundingShortfall: 0 }],
+    ['negative', { fundingShortfall: -1 }],
+    ['fractional', { fundingShortfall: 0.5 }],
+    ['not finite', { fundingShortfall: Number.POSITIVE_INFINITY }],
+    ['beside a fee', { isCompleted: true }],
+  ])('refuses a shortfall that is %s', (_shape, overrides) => {
+    expect(() => summarizeQbitPsbtSpend(draft(overrides))).toThrow(TypeError)
+  })
+})

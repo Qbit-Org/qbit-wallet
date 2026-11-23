@@ -43,21 +43,25 @@ const keyring = {
 // need no bracket access.
 const { setCurrent: setCurrentAccount, setAccounts } = accountActions
 const { setCurrent: setCurrentKeyring, setKeyrings } = keyringsActions
-const { setSpendUnavailableUtxos } = transactionsActions
-const { setBalanceHidden, updateAmountInput, updateTxCreateScreen } = uiActions
+const { setUtxos } = transactionsActions
+const { setBalanceHidden, updateFeeRateBar, updateTxCreateScreen } = uiActions
 const { updateSettings } = settingsActions
 
 /** A store holding a wallet, a send draft and changed preferences. */
 function storeWithAWallet() {
   const store = createAppStore()
-  store.dispatch(
-    globalActions.update({ isReady: true, isBooted: true, isUnlocked: true, tab: 'settings' })
-  )
+  store.dispatch(globalActions.update({ isReady: true, isBooted: true, isUnlocked: true }))
   store.dispatch(setCurrentAccount(account as any))
   store.dispatch(setAccounts([account as any]))
   store.dispatch(setKeyrings([keyring as any]))
   store.dispatch(setCurrentKeyring(keyring as any))
-  store.dispatch(setSpendUnavailableUtxos([{ txid: 'aa', vout: 0 } as any]))
+  store.dispatch(
+    setUtxos({
+      utxos: [{ txid: 'aa', vout: 0 } as any],
+      chain: store.getState().settings.chainType,
+      address: account.address,
+    })
+  )
   store.dispatch(
     updateTxCreateScreen({
       toInfo: { address: DRAFT_ADDRESS },
@@ -65,7 +69,7 @@ function storeWithAWallet() {
       memo: 'rent',
     })
   )
-  store.dispatch(updateAmountInput({ amount: '2' }))
+  store.dispatch(updateFeeRateBar({ feeRate: 2, feeRateInputVal: '2' }))
   store.dispatch(setBalanceHidden(true))
   store.dispatch(
     updateSettings({

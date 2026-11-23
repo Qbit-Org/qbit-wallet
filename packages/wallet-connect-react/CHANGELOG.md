@@ -1,5 +1,12 @@
 # @qbit/wallet-connect-react
 
+## 0.2.7
+
+### Patch Changes
+
+- Updated dependencies [c278cd8]
+  - @qbit/wallet-connect@0.3.1
+
 ## 0.2.6
 
 ### Patch Changes

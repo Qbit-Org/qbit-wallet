@@ -16,7 +16,6 @@ import { BUS_METHODS, QbitRecoveryState, VersionDetail } from '@qbit/wallet-shar
 import '@qbit/wallet-state';
 import {
   uiEventBus,
-  useChain,
   useCurrentAccount,
   useCurrentKeyring,
   useI18n,
@@ -42,8 +41,6 @@ const STORAGE_VERSION_KEY = 'version_detail';
 
 export default function WalletTabScreen() {
   const navigate = useNavigate();
-
-  const chain = useChain();
 
   const currentKeyring = useCurrentKeyring();
   const currentAccount = useCurrentAccount();
@@ -247,7 +244,7 @@ export default function WalletTabScreen() {
           <QbitSendPlanResumeCard />
 
           <BalanceCard />
-          <WalletActions chain={chain} hideReceive={recoveryState?.status === 'migrated'} />
+          <WalletActions hideReceive={recoveryState?.status === 'migrated'} />
         </Column>
         {!versionInfo.skipped && (
           <UpgradePopover

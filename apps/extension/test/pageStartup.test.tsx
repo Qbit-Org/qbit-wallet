@@ -1228,7 +1228,11 @@ describe('a page starting', () => {
       const { wallet, store } = await contentWithoutAnId();
       act(() => {
         store.dispatch(
-          transactionsActions.updateQbitTx({ fromAddress: account.address, toAddress: 'qb1zfriend', toSatoshis: 1_000 })
+          transactionsActions.setUtxos({
+            address: account.address,
+            chain: ChainType.QBIT_REGTEST,
+            utxos: [{ txid: 'aa', vout: 0, satoshis: 1_000 } as never]
+          })
         );
       });
 
@@ -1238,7 +1242,7 @@ describe('a page starting', () => {
 
       expect(getShownWalletId()).toBe('wallet-2');
       expect(shown(store).current).toBe(`Other 1@${other.address}`);
-      expect(store.getState().transactions.qbitTx).toMatchObject({ fromAddress: '', toAddress: '', toSatoshis: 0 });
+      expect(store.getState().transactions).toMatchObject({ utxos: [], utxosAddress: null, utxosChain: null });
     });
 
     // A run a lock or an unlock starts after the last retry still reads the

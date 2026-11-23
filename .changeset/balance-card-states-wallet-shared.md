@@ -1,5 +1,0 @@
----
-'@qbit/wallet-shared': minor
----
-
-Add the types and the event name a page uses to follow a balance read, and one definition of a complete balance. `QbitAddressBalanceOptions` is the new optional second argument of `getAddressBalanceV2`: its `progressId` asks the background to tell the calling page, and no other, how the read goes, with `QBIT_BALANCE_READ_PROGRESS` events of type `QbitBalanceReadProgress`. A `total` event carries the total as soon as the address statistics answer, before any output is read, and `outputs` events say how many of the listed outputs have been read so far, a few times a second at most and never fewer than before for the same listing. `QbitKeptAddressBalance` is the answer of the new `getKeptAddressBalance` method: the last complete balance the background read for an address, with when its read began. `isCompleteQbitBalance` says whether a balance answer is complete (its split known, or past the explorer's listing limit), as the background and the pages both judge it. The answer of `getAddressBalanceV2` keeps its shape.

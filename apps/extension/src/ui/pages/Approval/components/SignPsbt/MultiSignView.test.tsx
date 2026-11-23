@@ -66,7 +66,6 @@ vi.mock('@/ui/components/AutoFitVirtualList', async () => {
       )
   };
 });
-vi.mock('@/ui/components/ColdWallet/ColdWalletSignPsbt', () => ({ default: () => null }));
 vi.mock('@/ui/components/PhishingDetection', () => ({ PhishingDetection: () => null }));
 vi.mock('@/ui/components/QbitRestoredFloorWarning', () => ({ QbitRestoredFloorWarning: () => null }));
 vi.mock('@/ui/components/SignPsbtWithRisksPopover', () => ({
@@ -80,7 +79,7 @@ vi.mock('@/ui/components/WebsiteBar', () => ({ default: () => null }));
 vi.mock('@/ui/theme/colors', () => ({ colors: { border: '', surface: '' } }));
 vi.mock('@/ui/theme/font', () => ({ fontSizes: { xs: 12, sm: 14, xxxl: 32 } }));
 vi.mock('@/ui/utils', () => ({ walletErrorMessage: (error: unknown) => String(error) }));
-vi.mock('@qbit/base-utils', () => ({ numUtils: { satoshisToAmount: () => '0' } }));
+vi.mock('@qbit/base-utils', () => ({ numUtils: { satoshisToAmount: (value: number) => `amount(${value})` } }));
 vi.mock('@qbit/wallet-shared', () => ({
   AccountSignMethod: { Local: 'local', ColdWallet: 'coldWallet', External: 'external', None: 'none' }
 }));
@@ -166,7 +165,6 @@ function multiSignLogic(overrides: Record<string, unknown> = {}) {
     toSignDatas,
     currentToSignData: undefined,
     currentDecodedPsbt: undefined,
-    isColdWalletSigning: false,
     showMultiSignView: true,
     disclaimerVisible: false,
     localPsbtSummary: summary,
@@ -198,8 +196,6 @@ function multiSignLogic(overrides: Record<string, unknown> = {}) {
     onQuickMultiSign: vi.fn(),
     onTryMultiSign: vi.fn(),
     onTrustSite: vi.fn(),
-    onColdWalletSigningSuccess: vi.fn(),
-    onColdWalletSigningBack: vi.fn(),
     onRiskPopoverConfirm: vi.fn(),
     onRiskPopoverClose: vi.fn(),
     onDisclaimerModalClose: vi.fn(),
@@ -363,5 +359,46 @@ describe('SignPsbt signature budget of a batch (#152)', () => {
     expect(screen.getByTestId('multisign-signature-budget').textContent).toBe('Signatures: 3 new for all transactions');
     // Each still shows its seed-only status, which no signing order changes.
     expect(screen.getAllByText(/^qbit_recovery_status_seed_only; /)).toHaveLength(3);
+  });
+});
+
+describe('SignPsbt batch entry whose outputs exceed its inputs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useCurrentAccountCapabilities).mockReturnValue({ signMethod: 'local' } as any);
+    vi.mocked(useI18n).mockReturnValue({ t: (key: string) => key } as any);
+    vi.mocked(useQbitUnit).mockReturnValue('QBT' as any);
+    vi.mocked(useTools).mockReturnValue({ toastError: vi.fn() } as any);
+    vi.mocked(useWallet).mockReturnValue({} as any);
+  });
+
+  afterEach(cleanup);
+
+  it('shows its shortfall for the outputs shown, and no fee, beside a funded entry', () => {
+    // As analyzeLocalPsbts reports a draft 30,000 short: no fee, no rate.
+    const draft = { ...psbtInfo([]), feeRate: '-', fee: 0, isCompleted: false, fundingShortfall: 30_000 };
+    const funded = { ...psbtInfo([]), fee: 5_000 };
+    renderMultiSign(
+      multiSignLogic({
+        batchRiskIndexes: [],
+        localPsbtSummary: { ...summary, items: [draft, funded] },
+        multiSignList: [draft, funded].map((info, index) => ({
+          index,
+          buttonText: 'view',
+          buttonPreset: 'primary',
+          psbtInfo: info,
+          onClick: vi.fn()
+        }))
+      })
+    );
+
+    expect(screen.getByTestId('multisign-funding-shortfall-0').textContent).toBe(
+      'qbit_funding_shortfall: amount(30000) QBT'
+    );
+    expect(screen.queryByTestId('multisign-funding-shortfall-1')).toBeNull();
+    // The funded entry shows its fee; the draft shows none, not even zero.
+    expect(screen.getByText('amount(5000) QBT')).toBeTruthy();
+    expect(screen.queryByText('amount(0) QBT')).toBeNull();
+    expect(screen.getAllByText('1.00 bits/vB')).toHaveLength(1);
   });
 });

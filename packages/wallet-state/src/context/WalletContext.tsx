@@ -37,7 +37,6 @@ import {
   QbitSendPlanPrepareResult,
   QbitSendPlanStartResult,
   QbitSendPlanView,
-  RateUsStatus,
   RegtestAccessStatus,
   SignPsbtOptions,
   SignedData,
@@ -57,7 +56,7 @@ import {
   WalletKeyring,
   WebsiteSafetyResult,
 } from '@qbit/wallet-shared'
-import { AddressType, ChainType, NetworkType } from '@qbit/wallet-types'
+import { AddressType, ChainType } from '@qbit/wallet-types'
 import type { PendingApproval } from './ApprovalContext'
 
 interface ContactBookItem {
@@ -109,7 +108,6 @@ export interface WalletController {
     | { state: 'failed'; reason: 'stored-settings-unreadable' | 'unknown' }
   >
 
-  getDesc: () => string
   /**
    * Sets the password when no wallet is set up yet. Rejects with
    * WALLET_RESET_INCOMPLETE, setting no password, when a reset that erased
@@ -218,9 +216,6 @@ export interface WalletController {
   getLocale(): Promise<string>
   setLocale(locale: string): Promise<void>
 
-  getCurrency(): Promise<string>
-  setCurrency(currency: string): Promise<void>
-
   getPrivateKey(
     password: string,
     account: { address: string; type: string }
@@ -238,9 +233,7 @@ export interface WalletController {
     keyring?: WalletKeyring,
     network?: QbitDescriptorNetworkName
   ): Promise<QbitP2mrDescriptorExport>
-  getPreMnemonics(): Promise<any>
   generatePreMnemonic(strength?: 128 | 256): Promise<string>
-  removePreMnemonics(): void
   createKeyringWithMnemonics(
     mnemonic: string,
     hdPath: string,
@@ -249,20 +242,6 @@ export interface WalletController {
     accountCount: number,
     accountIndexDerivation?: boolean
   ): Promise<{ address: string; type: string }[]>
-  createKeyringWithColdWallet(
-    xpub: string,
-    addressType: AddressType,
-    alianName?: string,
-    hdPath?: string,
-    accountCount?: number
-  ): Promise<WalletKeyring>
-
-  deriveAccountsFromXpub(
-    xpub: string,
-    addressType: AddressType,
-    hdPath?: string,
-    accountCount?: number
-  ): Promise<{ pubkey: string; address: string }[]>
 
   createTmpKeyringWithMnemonics(
     mnemonic: string,
@@ -333,7 +312,6 @@ export interface WalletController {
     keyring: WalletKeyring,
     alianName?: string
   ): Promise<DeriveAccountResult>
-  getAccountsCount(): Promise<number>
   getAllAlianName: () => (ContactBookItem | undefined)[]
   getContactsByMap: () => ContactBookStore
 
@@ -454,9 +432,6 @@ export interface WalletController {
   /** Stop waiting for that read; a walk nothing waits for any more stops. */
   abandonQbitUtxoSnapshot(readId: string): Promise<void>
 
-  getNetworkType(): Promise<NetworkType>
-  setNetworkType(type: NetworkType): Promise<void>
-
   getChainType(): Promise<ChainType>
   setChainType(type: ChainType): Promise<void>
 
@@ -490,11 +465,6 @@ export interface WalletController {
   setAccountAlianName(account: Account, name: string): Promise<Account>
   getFeeSummary(): Promise<FeeSummary>
   getLowFeeSummary(): Promise<FeeSummary>
-  setEditingKeyring(keyringIndex: number): Promise<void>
-  getEditingKeyring(): Promise<WalletKeyring>
-
-  setEditingAccount(account: Account): Promise<void>
-  getEditingAccount(): Promise<Account>
 
   decodePsbt(psbtHex: string, website: string, options?: DecodePsbtOptions): Promise<DecodedPsbt>
   analyzeLocalPsbts(toSignDatas: ToSignData[]): Promise<LocalPsbtSummary>
@@ -504,8 +474,6 @@ export interface WalletController {
     options?: QbitSigningOptions
   ): Promise<SignedData>
 
-  expireUICachedData(address: string): Promise<void>
-
   getWalletConfig(): Promise<WalletConfig>
 
   getSkippedVersion(): Promise<string>
@@ -514,9 +482,6 @@ export interface WalletController {
   checkWebsite(website: string): Promise<WebsiteSafetyResult>
 
   formatOptionsToSignInputs(psbtHex: string, options?: SignPsbtOptions): Promise<ToSignInput[]>
-
-  getShowSafeNotice(): Promise<boolean>
-  setShowSafeNotice(show: boolean): Promise<void>
 
   // address flag
   addAddressFlag(account: Account, flag: AddressFlagType): Promise<Account>
@@ -561,7 +526,6 @@ export interface WalletController {
 
   setLastActiveTime(): void
 
-  getOpenInSidePanel(): Promise<boolean>
   setOpenInSidePanel(openInSidePanel: boolean): Promise<void>
 
   /**
@@ -590,18 +554,6 @@ export interface WalletController {
    */
   getWalletId(): Promise<string | null>
 
-  getGuideReaded(): Promise<boolean>
-  setGuideReaded(): Promise<void>
-
-  getRateUsStatus(): Promise<RateUsStatus>
-
-  setHasRated(hasRated: boolean): Promise<void>
-  setRatePromptDismissedAt(timestamp: number | null): Promise<void>
-  setHasShownSecondPrompt(hasShown: boolean): Promise<void>
-  resetRateUsStatus(): Promise<void>
-
-  getAcceptLowFeeMode(): Promise<boolean>
-  setAcceptLowFeeMode(accept: boolean): Promise<void>
   getEnableRBF(): Promise<boolean>
   setEnableRBF(enableRBF: boolean): Promise<void>
 

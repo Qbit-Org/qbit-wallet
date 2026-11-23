@@ -59,7 +59,6 @@ export const svgRegistry = {
   sortAddress: '/images/icons/action/sort-address.svg',
   sortTop: '/images/icons/action/sort-top.svg',
   sortDrag: '/images/icons/action/sort-drag.svg',
-  more: '/images/icons/action/more.svg',
 
   // status
   success: '/images/icons/status/success.svg',
@@ -83,17 +82,13 @@ export const svgRegistry = {
   website: '/images/icons/social/website.svg',
 
   // tx
-  utxo: '/images/icons/tx/utxo.svg',
   psbt_input: '/images/icons/tx/psbt_input.svg',
   psbt_output: '/images/icons/tx/psbt_output.svg',
   psbt_opreturn: '/images/icons/tx/psbt_opreturn.svg',
 
   // action (balance toggles)
   'balance-eyes': '/images/icons/action/balance-eyes.svg',
-  'balance-eyes-closed': '/images/icons/action/balance-eyes-closed.svg',
-
-  // artifacts
-  'singer-info': '/images/icons/artifacts/singer-info.svg'
+  'balance-eyes-closed': '/images/icons/action/balance-eyes-closed.svg'
 };
 
 type LucideIconName =

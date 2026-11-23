@@ -7,6 +7,7 @@ import {
   readReleaseStorage,
   type ReleaseStorage,
 } from '../../../tests/fixtures/release-storage/release-storage'
+import { DROPPED_KEYS } from './dropped-keys'
 
 // chrome.storage.local hands out copies, and keeps copies of what it is given.
 class DumpStorage extends BaseProxyStorageAdapter {
@@ -34,10 +35,7 @@ class StoreDefinition extends PreferenceService {
 
 // Fields BasePreferenceStore declares that the template leaves out, which
 // the service reads with a fallback of its own.
-const OPTIONAL_KEYS = ['regtestAccessAck', 'guideReaded', 'addressSummary']
-
-// Settings earlier releases saved that this build drops when it loads them.
-const DROPPED_KEYS = ['enableSignData']
+const OPTIONAL_KEYS = ['regtestAccessAck']
 
 // Settings this build adds when it loads a store saved before they existed.
 const ADDED_KEYS = ['keyringColors', 'lockOnComputerLock', 'lockOnWindowsClosed']

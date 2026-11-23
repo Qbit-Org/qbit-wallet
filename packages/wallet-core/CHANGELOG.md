@@ -1,5 +1,26 @@
 # @qbit/wallet-core
 
+## 1.1.8
+
+### Patch Changes
+
+- c278cd8: Update the protocol SDK to 0.1.2 in its wallet consumers and the companion API to 0.1.2 in the background service.
+- 22a64e1: `eccManager` uses only tiny-secp256k1, and the package no longer depends on `@bitcoinerlab/secp256k1`. That pure-JS curve was chosen only when a React Native platform was detected, which never happens in the extension, yet it was loaded and an ECPair built on it at every start. `eccManager.eccType`, `eccManager.setEccType()` and the `EccType` enum are removed; `eccManager.ecc`, `eccManager.eccPair` and the ECC library set for bitcoinjs-lib are unchanged.
+- Updated dependencies [9231628]
+- Updated dependencies [26065a5]
+- Updated dependencies [041fbaf]
+- Updated dependencies [5df0946]
+- Updated dependencies [c278cd8]
+- Updated dependencies [96fd314]
+- Updated dependencies [c278cd8]
+- Updated dependencies [d6e03ce]
+- Updated dependencies [5b98b06]
+- Updated dependencies [44e0ee3]
+- Updated dependencies [d33eca0]
+- Updated dependencies [4ff73ed]
+- Updated dependencies [fa23068]
+  - @qbit/wallet-shared@4.0.0
+
 ## 1.1.7
 
 ### Patch Changes
